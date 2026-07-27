@@ -1,0 +1,32 @@
+# environment.yml -- conda/mamba environment for the MD tutorial notebooks.
+#
+# This is the RELIABLE path (HPC + local): openmm and pdbfixer come from conda-forge, which resolves
+# them correctly. pip's resolver conflicts on these two (e.g. a new pdbfixer pinning openmm>=8.2 that pip
+# can't satisfy on an older Python) -- that's the "ResolutionImpossible" you hit on OSC's default kernel.
+#
+#   conda env create -f environment.yml           # or:  mamba env create -f environment.yml
+#   conda activate mdtutorial
+#   python -m ipykernel install --user --name mdtutorial --display-name "MD tutorial (mdtutorial)"
+#   # -> then pick "MD tutorial" as the kernel in Jupyter/OnDemand. Cell 0 finds everything, installs nothing,
+#   #    and you never land on the system Python by accident again.
+#
+# Versions are loose (get a WORKING env). For BIT-reproduction of the canonical run, use the exact
+# openmm / platform recorded in that run's run_meta.json instead.
+name: mdtutorial
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11            # 3.10-3.12 all work; 3.11 is the safe, well-wheeled choice for this whole stack
+  - openmm>=8.2
+  - pdbfixer>=1.11
+  - mdtraj
+  - numpy
+  - scipy
+  - matplotlib
+  - pymbar                 # MBAR free-energy reweighting (PMFs + overlap) for the enhanced-sampling notebook (conda-forge, pure-python)
+  - pymol-open-source      # ray-traced cartoon figures (optional -- panels skip gracefully if it's absent)
+  - ipykernel              # registers this env as a Jupyter kernel (the fix for the wrong-kernel trap)
+  - jupyterlab
+  - pip
+  - pip:
+      - py3Dmol            # interactive in-notebook 3D viewer. conda-forge HAS py3dmol too, but pip is the tested path here
