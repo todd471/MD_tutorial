@@ -288,6 +288,31 @@ def load_prepared(out_root=".", seed=2024, temp_K=300.0):
                           hardware_report(sim.context))
 
 
+def load_or_prepare(prep_root, out_root=None, seed=2024, temp_K=300.0, pdb_id="1L2Y", verbose=True):
+    """Return a PreparedSystem, degrading gracefully so every notebook is SELF-SUFFICIENT: LOAD the system
+    fig1 saved (load_prepared) if it's there, else PREPARE a fresh one here (prepare_system + save_prepared).
+    The fig1 -> fig2 -> fig3 order sharing one prep needs a shared filesystem -- true locally, but NOT on Colab
+    (each notebook runs in its own VM) or when a notebook is opened standalone. This is the ONE place that
+    logic lives; fig2/fig3 call it instead of re-implementing the try/except. The fresh fallback is an
+    INDEPENDENT solvation (its own water) -- fine for dynamics, not for bit-for-bit reproducibility -- and the
+    print states which path ran. `out_root` (where a fresh prep + its stage PDBs are written) defaults to
+    `prep_root`. To share fig1's EXACT prep across VMs on Colab, point `prep_root` at a persisted location."""
+    if out_root is None:
+        out_root = prep_root
+    try:
+        prep = load_prepared(prep_root, seed=seed, temp_K=temp_K)
+        if verbose:
+            print("loaded the prepared system saved by Figure 1.")
+        return prep
+    except FileNotFoundError:
+        if verbose:
+            print("No saved prep found -- preparing a FRESH system here (its own solvation, not fig1's exact")
+            print("  one; fine for dynamics, use fig1's saved prep for bit-for-bit reproducibility).")
+        prep = prepare_system(pdb_id=pdb_id, seed=seed, out_root=out_root, temp_K=temp_K, verbose=verbose)
+        save_prepared(prep, out_root)
+        return prep
+
+
 def _prep_fingerprint(prep):
     """Short content hash of the prepared system's minimized coordinates -- identifies THIS solvation so a
     trajectory is reused only if it came from the same prepared system (two solvation seeds can share an
