@@ -245,9 +245,11 @@ cmd.enable("after"); cmd.disable("before"); cmd.set_view(V); cmd.ray(700, 700); 
 
 
 def cartoon_panels(stage2_pdb, stage3_pdb, out_dir, pymol=None):
-    """The three build-stage cartoon panels: (1) repaired peptide (cartoon + translucent surface), (2) the
-    empty periodic box, (3) the box filled with water + ion(s) -- panels 2 & 3 share one camera so the
-    molecule stays the same size. Returns {name: png} for whichever rendered (empty dict if PyMOL absent)."""
+    """The three build-stage panels: (1) repaired peptide (cartoon + translucent surface); (2) & (3) the
+    ALL-ATOM peptide (sticks, element-colored) + translucent grey surface inside the FULL periodic box --
+    panel 2 empty box, panel 3 filled with water + ion(s). Panels 2 & 3 share one camera, zoomed out so the
+    whole box is in frame (shows how small the solute is relative to the solvent). Returns {name: png} for
+    whichever rendered (empty dict if PyMOL absent)."""
     os.makedirs(out_dir, exist_ok=True)
     out = {"panel1_repair": os.path.join(out_dir, "panel1_repair.png"),
            "panel2_box": os.path.join(out_dir, "panel2_box.png"),
@@ -259,7 +261,7 @@ from pymol.cgo import LINEWIDTH, BEGIN, LINES, COLOR, VERTEX, END
 W = 1000
 cmd.bg_color("white"); cmd.set("ray_opaque_background", 0)
 cmd.set("cartoon_fancy_helices", 1); cmd.set("cartoon_highlight_color", "grey50")
-cmd.set("ray_shadows", 0); cmd.set("antialias", 2); cmd.set("orthoscopic", 1)
+cmd.set("ray_shadows", 0); cmd.set("antialias", 2); cmd.set("orthoscopic", 1); cmd.set("stick_radius", 0.14)
 cmd.set("transparency_mode", 1); cmd.set("surface_quality", 1)
 def spec(sel): cmd.spectrum("count", "rainbow", sel + " and name CA")   # N(blue)->C(red)
 def add_surface(sel):
@@ -279,10 +281,10 @@ cmd.zoom("pep", buffer=-1.5)
 cmd.ray(W, W); cmd.png({out['panel1_repair']!r}, dpi=150)
 # Panels 2 & 3 share the SAME solvated system, box, and zoom -> identical molecule size
 cmd.load({stage3_pdb!r}, "sol"); cmd.hide("everything", "sol"); cmd.disable("pep")
-cmd.show("cartoon", "sol and polymer"); spec("sol and polymer"); add_surface("sol and polymer")
+cmd.show("sticks", "sol and polymer"); cmd.util.cbaw("sol and polymer"); add_surface("sol and polymer")
 cmd.orient("sol and polymer"); cmd.turn("y", 20); cmd.turn("x", 20)
 es = cmd.get_extent("sol"); box(es[0], es[1], "cellbox", color=(0.2, 0.2, 0.2), lw=2.0)
-cmd.zoom("cellbox", buffer=2); cmd.clip("slab", 120)
+cmd.zoom("cellbox", buffer=6, complete=1); cmd.clip("slab", 300)
 cmd.ray(W, W); cmd.png({out['panel2_box']!r}, dpi=150)
 # Panel 3: reveal water + ion (identical view)
 cmd.show("spheres", "sol and resn HOH+WAT and name O")

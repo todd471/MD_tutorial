@@ -39,7 +39,7 @@ def forcefield(preset):
 
 
 _PREP_CACHE = {}
-def prep(pdb, seed, ff_preset="amber14 + TIP3P"):
+def prep(pdb, seed, ff_preset="CHARMM36 + TIP3P"):
     """fetch -> repair (seeded + Reference-platform H) -> solvate (seeded), IN-MEMORY (no stage files);
     the System is built in run() so an NPT barostat never mutates a cached object. Deterministic + cached.
     Reuses mdtutorial.fetch_pdb; the repair order (removeHeterogens BEFORE findMissingAtoms) matches
@@ -83,9 +83,9 @@ def integrator(ensemble, thermostat, temp_k, dt):
 
 
 def run(pdb, temp_k, seed, prod_ps, equil_ps=20,
-        ff_preset="amber14 + TIP3P", ensemble="NVT", thermostat="Langevin", timestep_fs=2):
+        ff_preset="CHARMM36 + TIP3P", ensemble="NVT", thermostat="Langevin", timestep_fs=2):
     """One run, IN MEMORY (no files). Returns (trajectory, cvs). cvs always has rmsd/rg/helix/ete; also
-    volume/density (NPT) and total_energy (NVE). Defaults reproduce Section 1's physics (amber14+TIP3P,
+    volume/density (NPT) and total_energy (NVE). Defaults reproduce Section 1's physics (CHARMM36+TIP3P,
     NVT, Langevin, 2 fs). Uses mdtutorial.pick_platform for the working-platform fallback."""
     T = temp_k * unit.kelvin; dt = timestep_fs * unit.femtoseconds
     spp = int(round(1000 / timestep_fs))                  # MD steps per ps

@@ -40,8 +40,8 @@ def outp(name, out_root="."):
 
 
 def default_forcefield():
-    """The tutorial's force field: Amber14 protein + TIP3P water."""
-    return app.ForceField("amber14-all.xml", "amber14/tip3p.xml")
+    """The tutorial's force field: CHARMM36m protein + CHARMM-modified TIP3P water."""
+    return app.ForceField("charmm36.xml", "charmm36/water.xml")
 
 
 # ============================================================ prepared-system bundle
@@ -352,7 +352,7 @@ def run_repeat(prep, seed, n_prod_ps=200, run_mode="interactive", out_root=".",
     if run_mode == "canonical":
         sim_r.saveState(outp(f"final_state_{seed}.xml", out_root))
         meta = {**hardware_report(sim_r.context), "seed": seed, "temperature_K": temp_K,
-                "timestep_fs": 2, "prod_ps": n_prod_ps, "forcefield": "amber14-all.xml + tip3p"}
+                "timestep_fs": 2, "prod_ps": n_prod_ps, "forcefield": "charmm36 + charmm36/water"}
         json.dump(meta, open(outp(f"run_meta_{seed}.json", out_root), "w"), indent=2)
     # Flush to STABLE STORAGE before anything reads it back: DCDReporter closes only on GC, so on a
     # networked FS an unflushed DCD can read back as ZERO frames (the intermittent compute_cvs IndexError).
