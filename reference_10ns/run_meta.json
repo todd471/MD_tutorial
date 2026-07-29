@@ -1,0 +1,23 @@
+{
+  "openmm": "8.2.0.dev-5377094",
+  "platform": "CUDA",
+  "python": "3.13.5",
+  "os": "Linux-5.14.0-570.119.1.el9_6.x86_64-x86_64-with-glibc2.34",
+  "cpu": "x86_64",
+  "Precision": "mixed",
+  "DeterministicForces": "true",
+  "temperature_K": 300.0,
+  "timestep_fs": 2,
+  "prod_ps": 10000,
+  "forcefield": "charmm36 + charmm36/water",
+  "reference_seeds": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "reference_stride_ps": 2.0,
+  "reference_note": "protein-only, every 1 ps, 6 seeds across 1 solvation batches -- stripped by make_reference.py Shipped slim bundle: trajectories restrided from 1 ps to 2 ps for distribution (make_slim_reference.py); state_*.csv retain 1 ps. Full-res 1 ps canonical archived separately."
+}
