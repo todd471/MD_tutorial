@@ -441,6 +441,37 @@ def compute_cvs(dcd, top):
                 ile4=ile4, ser13=ser13, d9r16=d9r16, indolelid=indolelid)
 
 
+def ensure_reference(ref_root="reference_10ns", base=None):
+    """Make the shipped reference bundle available locally, fetching it from `base` (the on-ramp's
+    raw-GitHub URL, or $MDTUTORIAL_BASE) if this filesystem doesn't already have it. NO-OP when the
+    bundle is present -- safe to call unconditionally right before load_reference. The point is Colab:
+    opening a notebook badge drops ONLY that .ipynb into a fresh VM (no repo tree, no shared FS), so the
+    reference has to be pulled on first need (the 'fetched only when a cell needs them' promise). The
+    file list comes from the bundle's MANIFEST.sha256 (relative paths), plus the topology + top-level
+    run_meta explicitly. Returns ref_root; raises FileNotFoundError (same hint as load_reference) only if
+    the bundle is absent AND no base URL is available (a genuinely offline run)."""
+    top = os.path.join(ref_root, "structures", "protein.pdb")
+    if os.path.exists(top):
+        return ref_root                                      # already here: local / HPC / previously fetched
+    if base is None:
+        base = os.environ.get("MDTUTORIAL_BASE")
+    if not base:
+        raise FileNotFoundError(f"reference bundle not found at {ref_root}/ and no base URL to fetch from "
+                                "-- point REF_ROOT at a local bundle, or set MDTUTORIAL_BASE")
+    import urllib.request
+    man = urllib.request.urlopen(f"{base}/{ref_root}/MANIFEST.sha256").read().decode()
+    files = [ln.split()[1] for ln in man.splitlines() if len(ln.split()) >= 2]
+    for extra in ("structures/protein.pdb", "run_meta.json"):  # guarantee topology + meta even if the manifest omits them
+        if extra not in files:
+            files.append(extra)
+    for rel in files:
+        dst = os.path.join(ref_root, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        urllib.request.urlretrieve(f"{base}/{ref_root}/{rel}", dst)
+    print(f"fetched reference bundle -> {ref_root}/ ({len(files)} files)")
+    return ref_root
+
+
 def load_reference(ref_root="reference_run", dt_ps=None):
     """Load a shipped protein-only reference bundle (make_reference.py output) as a list of CV dicts -- the
     SAME shape compute_cvs returns, so downstream analysis is identical to a live run. The point is an
