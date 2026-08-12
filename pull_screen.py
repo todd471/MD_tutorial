@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 """pull_screen.py -- Nb3 reaction-coordinate bake-off. Steered MD (moving harmonic restraint) along each of 5
-candidate CVs, one at a time, at BOTH 300 K (matches the unbiased reference) and 315 K (Zhou's melting onset),
+candidate CVs, one at a time, at BOTH 300 K (matches the unbiased reference) and 315 K (near the experimental TC5b Tm ~42 C; Neidigh & Andersen 2002),
 in implicit solvent (fast, runs on M3/Colab). Bias ONE CV; judge success by INDEPENDENT referees never used
 as a restraint -- Trp6 side-chain SASA (cage exposure), the Asp9-Arg16 salt bridge, and Cα RMSD. The CV that
-raises SASA most (cage opens) while distorting the rest least, and whose 315 K result clearly beats 300 K, is
-the production coordinate. Deliberately NOT measuring the biased CV as the success metric (avoids the
+raises SASA most (cage opens) while distorting the rest least is the production coordinate (the shipped nb03 found no 300-330 K trend and screens at a single temperature). Deliberately NOT measuring the biased CV as the success metric (avoids the
 self-referential skew).
 
     python pull_screen.py --smoke              # 1 CV, 2 ps, Reference platform (assembly check)
@@ -83,6 +82,9 @@ def cage_cvs(mdtop, pdb_positions):
     return {
         "Trp6→helix core": (lambda: dist_cv(ring, S("resSeq 2 3 4 5 6 7 8 and name CA")), 0.6),
         "indole→polyPro lid": (lambda: dist_cv(ring, S("resSeq 17 18 19 and name CA")), 0.5),
+        "Trp6 NE1→Pro17": (lambda: dist_cv(S("resSeq 6 and name NE1"), S("resSeq 17 and name CA")), 0.5),   # crisp single contact; no floppy poly-Pro centroid
+        "indole→Pro18": (lambda: dist_cv(ring, S("resSeq 18 and name CB CG CD")), 0.5),   # the CORRECT indole stacker (Pro18, not Pro17); ring→ring, r(SASA)=+0.27
+        "indole→Pro12": (lambda: dist_cv(ring, S("resSeq 12 and name CB CG CD")), 0.5),   # 3-10-helix proline, ANTI-correlated w/ opening (r=-0.35) -> outward ramp = negative control
         "salt bridge": (lambda: dist_cv(S("resSeq 9 and name OD1 OD2"), S("resSeq 16 and name NH1 NH2 NE")), 0.6),
         "helix span (Cα2-8)": (lambda: dist_cv(S("resSeq 2 and name CA"), S("resSeq 8 and name CA")), 0.5),
         "RMSD global": (lambda: openmm.RMSDForce(pdb_positions, S("name CA")), 0.35),
@@ -90,12 +92,13 @@ def cage_cvs(mdtop, pdb_positions):
 
 
 def run_umbrella(pdb, cv_factory, centers, T, platform, k=2000.0, equil_ps=10.0, sample_ps=40.0, save_ps=0.5,
-                 solvent="explicit"):
-    """Sequential umbrella sampling: one harmonic restraint 0.5 k (cv - r0)^2 whose center r0 is stepped
-    through `centers` (nm, folded -> open); each window equilibrates then samples the CV. Returns a list of
-    per-window CV-sample arrays (nm) -- feed straight to mbar_pmf. Walking the center out generates the
-    windows in a single simulation (cheap, and the restraint drags the system window-to-window). solvent:
-    'explicit' (TIP3P+PME+NPT) or 'implicit' (GB)."""
+                 solvent="explicit", independent=False):
+    """Umbrella sampling: harmonic restraint 0.5 k (cv - r0)^2 at each center r0 (nm, folded -> open); each
+    window equilibrates then samples the CV. Returns per-window CV-sample arrays (nm) -> feed to mbar_pmf.
+    independent=False (default): SEQUENTIAL -- one restraint dragged through `centers` in a single run (cheap,
+    but the drag leaves each window out of equilibrium, biasing the PMF UPWARD and accumulating with distance).
+    independent=True: reset to the folded start and re-relax in place at EACH center (no drag carry-over) --
+    removes that hysteresis at ~the same cost. solvent: 'explicit' (TIP3P+PME+NPT) or 'implicit' (GB)."""
     system, topo, pos, _ = build_system(pdb, solvent, T)
     bias = openmm.CustomCVForce("0.5*k*(cv-r0)^2")
     bias.addCollectiveVariable("cv", _cv_force(cv_factory, solvent))
@@ -107,9 +110,14 @@ def run_umbrella(pdb, cv_factory, centers, T, platform, k=2000.0, equil_ps=10.0,
     sim.context.setVelocitiesToTemperature(T * unit.kelvin)
     if solvent == "explicit":
         sim.step(int(10.0 / DTPS))                                 # ~10 ps NPT settle before the first window
+    _seed = sim.context.getState(getPositions=True).getPositions()  # folded, settled start to reseed from (independent mode)
     windows = []
     for r0 in centers:
         sim.context.setParameter("r0", float(r0))
+        if independent:                                            # reset to folded + relax in place -> no sequential-drag carry-over
+            sim.context.setPositions(_seed)
+            sim.minimizeEnergy(maxIterations=200)
+            sim.context.setVelocitiesToTemperature(T * unit.kelvin)
         sim.step(int(equil_ps / DTPS))
         cvs = []
         for _ in range(int(sample_ps / save_ps)):
@@ -147,8 +155,10 @@ def mbar_pmf(windows, centers, k, T, nbins=40):
 
 def mbar_pmf_bootstrap(windows, centers, k, T, nbins=40, n_boot=20, seed=0):
     """PMF (mbar_pmf) plus a BOOTSTRAP error bar: resample each window's frames with replacement n_boot
-    times, recompute the PMF, take the per-bin std. Transparent uncertainty that needs no pymbar FES (which
-    is buggy in 4.0.3). Returns (x_Å, pmf, err) in kJ/mol."""
+    times, recompute the PMF, take the per-bin std. A transparent, overlap-honest uncertainty -- preferred
+    over any solver's built-in ASYMPTOTIC error bar, which assumes good overlap + uncorrelated samples and
+    goes optimistic exactly when a run is short/poorly-overlapped (Klimovich, Shirts & Mobley 2015).
+    Returns (x_Å, pmf, err) in kJ/mol."""
     x, pmf = mbar_pmf(windows, centers, k, T, nbins)
     rng = np.random.default_rng(seed)
     boots = []
@@ -199,6 +209,64 @@ def mbar_overlap(windows, centers, k, T):
         O = MBAR(u_kn, Nk).compute_overlap()["matrix"]
     adj = np.array([O[i, i + 1] for i in range(len(centers) - 1)])
     return O, float(adj.min())
+
+
+def reference_pmf(cv_per_seed, T, nbins=30):
+    """Honest 1-D free-energy profile  -k_BT ln P(CV)  from UNBIASED reference trajectories -- the single
+    source for BOTH the 3.0 motivation curve and the 3.5 cross-check, so the two can never drift.
+    cv_per_seed: list of per-seed CV arrays (Å). Pools all seeds for the central curve, then builds an
+    uncertainty BAND that (a) combines seed-to-seed disagreement with the per-bin counting error k_BT/sqrt(N),
+    (b) FLARES where few of the seeds reach a bin (no consensus -> low confidence), and (c) is floored in the
+    1-2 seed tail so it can never look tight where only one seed strays; finally masks the undersampled tails
+    CONTIGUOUSLY (walk out from the densest bin) so the sampled curve has no interior gaps -- which is what
+    stops a lone undersampled bin from posing as a phantom metastable basin. Returns
+    (mids_Å, G_kJ, band_kJ, wall_idx): G zeroed at the folded minimum, NaN outside the sampled range;
+    wall_idx = index of the right edge of the sampled range (the 'wall')."""
+    from scipy.ndimage import gaussian_filter1d
+    kT = 0.00831446261815324 * T
+    allcv = np.concatenate(cv_per_seed)
+    edges = np.linspace(allcv.min(), allcv.max(), nbins + 1); mids = 0.5 * (edges[:-1] + edges[1:])
+    cnt = np.histogram(allcv, bins=edges)[0]
+    G = -kT * np.log(np.histogram(allcv, bins=edges, density=True)[0] + 1e-12); G -= np.nanmin(G[cnt >= 5])
+    FEs = []                                                        # per-seed -k_BT lnP, each aligned to its own well
+    for v in cv_per_seed:
+        gg = -kT * np.log(np.histogram(v, bins=edges, density=True)[0] + 1e-12)
+        gg[np.histogram(v, bins=edges)[0] < 5] = np.nan
+        if np.isfinite(gg).any(): gg -= np.nanmin(gg)
+        FEs.append(gg)
+    FEa = np.array(FEs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)            # bins with <2 finite seeds -> DOF<=0
+        std = np.nanstd(FEa, axis=0)
+    nseed = np.sum(np.isfinite(FEa), axis=0); ntot = len(cv_per_seed)
+    cerr = kT / np.sqrt(np.maximum(cnt, 1))                         # counting error on -k_BT lnP (kJ/mol)
+    band = np.sqrt(np.nan_to_num(std) ** 2 + cerr ** 2) * np.sqrt(ntot / np.maximum(nseed, 1))  # flare where seeds thin
+    band[nseed <= 2] = np.maximum(band[nseed <= 2], 1.3 * kT)       # unvalidated tail: never let it look tight
+    band = gaussian_filter1d(band, 1.2)                             # smooth -> a continuous band, not chunky spikes
+    thr = max(20, len(allcv) // 600); i0 = int(np.argmax(cnt)); il = ir = i0
+    while ir + 1 < len(cnt) and cnt[ir + 1] >= thr: ir += 1         # contiguous sampled range (no interior gaps)
+    while il - 1 >= 0 and cnt[il - 1] >= thr: il -= 1
+    G[:il] = np.nan; G[ir + 1:] = np.nan
+    return mids, G, band, ir
+
+
+def integrated_autocorr_time(x):
+    """Integrated autocorrelation time tau = 1/2 + sum_k rho(k) (frames), Geyer (1992) initial-positive-
+    sequence PAIR rule -- the SAME estimator as mdtutorial / md_scalogram.integrated_autocorr_time, so nb03's
+    §3.6 salt-bridge aside quotes the same quantity nb02 uses for N_eff. Keep the three in sync if any is
+    changed. Linear observable (a distance); the circular/vector variant lives in md_scalogram."""
+    x = np.asarray(x, float) - np.mean(x)
+    n = len(x); v = np.dot(x, x) / n
+    if v == 0:
+        return 0.5
+    rho = lambda k: np.dot(x[:-k], x[k:]) / (n * v)
+    tau = 0.5
+    for k in range(1, n - 1, 2):
+        pair = rho(k) + rho(k + 1)
+        if pair <= 0:
+            break
+        tau += pair
+    return tau
 
 
 def run_pull(pdb, mdtop, cv_factory, delta, T, n_ps, platform, sel, k=2000.0, save_ps=2.0, solvent="explicit"):

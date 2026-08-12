@@ -6,7 +6,7 @@ one number. This spreads it back out. The Flyvbjerg-Petersen blocking transform 
 wavelet transform -- block-averaging adjacent pairs is the Haar *scaling* step, differencing them is the
 Haar *wavelet* step -- so the squared wavelet coefficients partition an observable's variance across
 (timescale x time). A stable fold puts its power at fast scales; a rare substate hop (a PRO19 psi flip,
-a helix fraying) shows a burst at a slow scale, localized at the moment it happens. Great for telling a
+a helix fraying) shows up localized at the moment it happens, its power spread across scales but weighted toward the slow end. Great for telling a
 "milquetoast wiggle" trajectory from one where something actually happened.
 
 LIBRARY
@@ -50,8 +50,9 @@ import numpy as np
 # rather than signal processing, the practical references live in the METEOROLOGY/climate literature:
 #   Torrence, C. & Compo, G. P. (1998). "A Practical Guide to Wavelet Analysis." Bull. Amer. Meteor. Soc.
 #       79(1), 61-78. -- THE practical reference for the wavelet power spectrum, its normalization and
-#       significance, and the reconstruction factor C_delta = 0.776 (Morlet w0=6; their Table 2) that turns
-#       the redundant CWT power back into a true variance. Free PDF:
+#       significance, and the reconstruction factor C_delta = 0.776 (Morlet w0=6; their Table 2) that WOULD
+#       turn the redundant CWT power into a true variance -- but we DO NOT apply it here; our CWT stays a
+#       relative spectrum and the exact variance-by-scale is the Haar/blocking transform below. Free PDF:
 #       https://psl.noaa.gov/people/gilbert.p.compo/Torrence_compo1998.pdf  (code: paos.colorado.edu/research/wavelets/)
 #   Liu, Y., Liang, X. S. & Weisberg, R. H. (2007). "Rectification of the Bias in the Wavelet Power
 #       Spectrum." J. Atmos. Ocean. Technol. 24(12), 2093-2102. -- the 1/s scale-bias correction applied here.
@@ -91,18 +92,21 @@ def blocking_scalogram(x, dt=1.0):
 
 
 def integrated_autocorr_time(x):
-    """Integrated autocorrelation time tau = 1/2 + sum_k rho(k), in frames (initial-positive-sequence).
-    N_eff = N / (2 tau); blocks/wavelet decorrelate near a scale of ~2 tau."""
+    """Integrated autocorrelation time tau = 1/2 + sum_k rho(k), in frames (Sokal 1997). Geyer (1992)
+    initial-positive-sequence PAIR truncation -- sum consecutive-pair autocorrelations, stop at the first
+    non-positive pair. This is the SAME estimator as mdtutorial.integrated_autocorr_time, so nb02 §2.6's tau
+    and §2.6b's 2tau line agree. N_eff = N/(2 tau); blocks/wavelet decorrelate near a scale of ~2 tau."""
     x = np.asarray(x, float) - np.mean(x)
     n = len(x); v = np.dot(x, x) / n
     if v == 0:
         return 0.5
+    rho = lambda k: np.dot(x[:-k], x[k:]) / (n * v)
     tau = 0.5
-    for k in range(1, n):
-        c = np.dot(x[:-k], x[k:]) / (n * v)
-        if c <= 0:
+    for k in range(1, n - 1, 2):
+        pair = rho(k) + rho(k + 1)
+        if pair <= 0:
             break
-        tau += c
+        tau += pair
     return tau
 
 
@@ -110,18 +114,20 @@ def _autocorr_time_vec(components):
     """Integrated autocorrelation time of a VECTOR process (list of 1-D component series), summing each
     component's autocovariance and normalizing by the total variance. For a circular angle the components
     are [cos theta, sin theta], giving the proper circular autocorrelation (of the unit vector on the
-    circle) -- the right decorrelation time for a dihedral, immune to the +-180 seam and to unwrap drift."""
+    circle) -- the right decorrelation time for a dihedral, immune to the +-180 seam and to unwrap drift.
+    Geyer (1992) initial-positive-sequence PAIR truncation, matching integrated_autocorr_time above."""
     comps = [np.asarray(c, float) - np.mean(c) for c in components]
     n = len(comps[0])
     v = sum(float(np.dot(c, c)) for c in comps) / n
     if v == 0:
         return 0.5
+    rho = lambda k: sum(float(np.dot(cc[:-k], cc[k:])) for cc in comps) / (n * v)
     tau = 0.5
-    for k in range(1, n):
-        c = sum(float(np.dot(cc[:-k], cc[k:])) for cc in comps) / (n * v)
-        if c <= 0:
+    for k in range(1, n - 1, 2):
+        pair = rho(k) + rho(k + 1)
+        if pair <= 0:
             break
-        tau += c
+        tau += pair
     return tau
 
 
@@ -130,8 +136,10 @@ def cwt_scalogram(x, dt=1.0, w0=6.0, n_scales=72):
     dyadic Haar/blocking version, at the cost of the exact variance partition. The CWT is REDUNDANT
     (non-orthogonal, overlapping scales), so |W|^2 is a NEAR-variance power spectrum, not an exact
     partition -- use blocking_scalogram for quantitative variance/error work, this for a finer/prettier
-    look at *where* correlation timescales live. Normalized per Torrence & Compo (1998) with the /s
-    scale-bias correction of Liu et al. (2007); pure numpy (FFT). Returns (timescales, power[nscale, N])."""
+    look at *where* correlation timescales live. This is a RELATIVE spectrum: the Morlet is unit-energy
+    normalized (pi^-1/4) with the /s scale-bias correction of Liu et al. (2007), but the Torrence & Compo
+    C_delta reconstruction is NOT applied -- absolute variance lives in blocking_scalogram (Parseval-exact).
+    Pure numpy (FFT). Returns (timescales, power[nscale, N])."""
     x = np.asarray(x, float); N = len(x); x = x - np.mean(x)
     scales = np.geomspace(2.0, max(4.0, N / 4.0), n_scales)   # in frames
     xf = np.fft.fft(x)
@@ -386,25 +394,25 @@ def both_figure(x, dt=1.0, label="observable", title=None, circular=False):
 
 
 def marginal_strip_figure(series, labels, dt=1.0, circular=True, obs_label="observable", title=None,
-                          method="cwt", blocking_marginal=False):
-    """Strip of scalograms (one column per series, meant fast->slow) each with its MARGINAL butted flush on
-    the right, sharing the timescale axis; 2*tau marked on the scalogram and labelled on the marginal's white
-    margin. This is the 2.6b figure: watch where power lives climb toward longer scale as tau grows.
+                          view="both"):
+    """Strip of scalograms (one column per series, meant fast->slow): each series is a TRACE on top and,
+    below it, one or both wavelet decompositions -- each with its MARGINAL butted flush on the right, sharing
+    the timescale axis; 2*tau marked on the scalogram and labelled on the marginal. This is the 2.6b figure:
+    watch power climb toward longer scale as tau grows.
 
-    Two levers on the marginal (see 2.6b prose):
-      method='cwt'      -> smooth Morlet CWT scalogram; marginal is the COI-respecting global wavelet
-                           spectrum (a red line). NEAR-variance & QUALITATIVE: the redundant CWT does NOT
-                           integrate to the variance, and the [2, N/4]-frame window + cone discount it.
-      method='blocking' -> the exact dyadic Haar-DWT scalogram; marginal is the EXACT (Parseval) wavelet
-                           variance per octave, drawn as a HISTOGRAM (bars). Reaches slower octaves (up to
-                           ~N) than the CWT's N/4 ceiling, but blocky and few-coefficient at the slow end.
-      blocking_marginal=True (method='cwt' only) -> overlay the exact Haar bars BEHIND the smooth CWT line,
-                           both normalized to shape, so you compare exact-vs-smooth in one panel (the Haar's
-                           octaves above N/4 are clipped by the shared CWT y-range).
+    view lever (reusable; the notebook default is 'both'):
+      'both' -> THREE rows per column: trace, then the EXACT dyadic Haar-DWT scalogram (marginal = exact
+                Parseval variance per octave, as bars), then the smooth Morlet CWT scalogram (marginal = the
+                COI-respecting global wavelet spectrum, a relative line). Lead with the exact; CWT is a guide.
+      'dwt'  -> trace + the Haar-DWT scalogram only.  'cwt' -> trace + the Morlet CWT scalogram only.
+    The CWT is REDUNDANT (near-variance, qualitative); the Haar-DWT is Parseval-exact (quantitative).
 
     NOT constrained-layout -- that re-inserts a gap that strands the scalogram's ticks; a flat gridspec with
     an empty spacer column separates the residue blocks. Returns the Figure."""
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import LogLocator, NullLocator
+    TF = {"both": ["blocking", "cwt"], "dwt": ["blocking"], "cwt": ["cwt"]}[view]   # exact first, then smooth
+    ROWLAB = {"blocking": "DWT (exact)", "cwt": "CWT (smooth)"}
     n = len(series)
     widths, colmap = [], []
     for i in range(n):
@@ -413,68 +421,72 @@ def marginal_strip_figure(series, labels, dt=1.0, circular=True, obs_label="obse
         widths.append(4.0); scol = len(widths) - 1                 # scalogram
         widths.append(1.15); mcol = len(widths) - 1                # marginal (flush against it)
         colmap.append((scol, mcol))
-    widths += [0.45, 0.13]; cbar_col = len(widths) - 1             # spacer + one shared colorbar on the right
-    fig = plt.figure(figsize=(4.7 * n + 0.8, 5.4))
-    gs = fig.add_gridspec(2, len(widths), width_ratios=widths, height_ratios=[1, 2.8],
-                          wspace=0.0, hspace=0.08)
-    from matplotlib.ticker import LogLocator, NullLocator
-    _pms, _vals = [], []
+    widths += [0.45, 0.13]; cbar_col = len(widths) - 1             # spacer + one colorbar per transform row
+    fig = plt.figure(figsize=(4.7 * n + 0.8, 2.6 + 2.8 * len(TF)))
+    gs = fig.add_gridspec(1 + len(TF), len(widths), width_ratios=widths,
+                          height_ratios=[1] + [2.8] * len(TF), wspace=0.0, hspace=0.10)
+    pm_by_tf = {tf: [] for tf in TF}; val_by_tf = {tf: [] for tf in TF}
     for ci, ((scol, mcol), x, lab) in enumerate(zip(colmap, series, labels)):
-        scales, power, marg0, tau = _scalo(x, dt, method, circular)    # marg0 = var_by_scale (blocking) / nansum (cwt)
-        N = power.shape[1]
-        marg = cwt_marginal(power, morlet_coi(N, dt), scales) if method == "cwt" else marg0
-        twotau = 2.0 * tau * dt
-        tt = np.arange(N) * dt
+        _, _, _, tau = _scalo(x, dt, TF[0], circular)              # tau = obs autocorr time (transform-independent)
+        twotau = 2.0 * tau * dt; tt0 = np.arange(len(x)) * dt
 
-        axT = fig.add_subplot(gs[0, scol])
-        axT.plot(tt, _recenter_deg(x) if circular else x, lw=0.7, color="navy"); axT.margins(x=0)
-        axT.set_title(f"{lab}  (τ≈{tau*dt:.0f} ps, N_eff≈{N/(2*tau):.0f})", fontsize=10)
+        axT = fig.add_subplot(gs[0, scol])                         # trace (top row)
+        axT.plot(tt0, _recenter_deg(x) if circular else x, lw=0.7, color="navy"); axT.margins(x=0)
+        axT.set_title(f"{lab}  (τ≈{tau*dt:.0f} ps, N_eff≈{len(x)/(2*tau):.0f})", fontsize=10)
         if ci == 0:
             axT.set_ylabel(obs_label + (" (centered)" if circular else ""))
         axT.tick_params(labelbottom=False)
 
-        axS = fig.add_subplot(gs[1, scol], sharex=axT)
-        _lp = np.log10(power + 1e-12)
-        _pms.append(axS.pcolormesh(tt, scales, _lp, shading="nearest", cmap="turbo"))
-        _vals.append(_lp[np.isfinite(_lp)])
-        axS.set_yscale("log"); axS.set_xlabel("time")
-        if ci == 0:
-            axS.set_ylabel("timescale")
-        if method == "cwt":
-            _overlay_coi(axS, tt, scales, dt)                       # cone of influence (CWT only)
-        axS.axhline(twotau, color="w", ls="--", lw=1.2)            # guide; label lives on the marginal
+        for r, tf in enumerate(TF):                               # one scalogram row per requested transform
+            scales, power, marg0, _ = _scalo(x, dt, tf, circular)
+            N = power.shape[1]; tt = np.arange(N) * dt
+            marg = cwt_marginal(power, morlet_coi(N, dt), scales) if tf == "cwt" else marg0
 
-        axM = fig.add_subplot(gs[1, mcol], sharey=axS)
-        if method == "blocking":                                    # exact dyadic Haar variance -> histogram
-            axM.barh(scales, marg / np.nanmax(marg), height=scales * 0.7, align="center",
-                     color="0.6", alpha=0.6, edgecolor="0.35", lw=0.4)
-            axM.set_xlim(0, 1.08); axM.set_xlabel("var. frac. (norm.)"); _lab_x = 0.97; _ha = "right"
-        elif blocking_marginal:                                     # exact Haar bars behind the smooth CWT line
-            sb, _, mb, _ = _scalo(x, dt, "blocking", circular)
-            axM.barh(sb, mb / np.nanmax(mb), height=sb * 0.7, align="center",
-                     color="0.7", alpha=0.5, edgecolor="0.4", lw=0.4)
-            axM.plot(marg / np.nanmax(marg), scales, "-", color="firebrick", lw=1.5)
-            axM.set_xlim(0, 1.08); axM.set_xlabel("power (norm.)"); _lab_x = 0.97; _ha = "right"
-        else:                                                       # smooth CWT marginal (near-variance)
-            axM.plot(marg, scales, "-", color="firebrick", lw=1.6)
-            axM.fill_betweenx(scales, marg, np.nanmin(marg), color="firebrick", alpha=0.15)
-            axM.set_xscale("log"); axM.set_xlabel("power (rel.)")
-            axM.xaxis.set_major_locator(LogLocator(numticks=3)); axM.xaxis.set_minor_locator(NullLocator())
-            _lab_x = 0.03; _ha = "left"
-        axM.axhline(twotau, color="0.35", ls="--", lw=1)
-        axM.text(_lab_x, twotau, f" 2τ≈{twotau:.0f} ", transform=axM.get_yaxis_transform(),
-                 ha=_ha, va="bottom", fontsize=8, color="0.2")      # on the white margin, off the curve
-        axM.tick_params(left=False, labelleft=False)                # no own timescale ticks: share the scalogram's
-        axM.spines["left"].set_visible(False)                       # butt flush against the scalogram
-        axM.tick_params(axis="x", labelsize=7, pad=1)
-        axM.margins(y=0)
+            axS = fig.add_subplot(gs[1 + r, scol], sharex=axT)
+            _lp = np.log10(power + 1e-12)
+            pm_by_tf[tf].append(axS.pcolormesh(tt, scales, _lp, shading="nearest", cmap="turbo"))
+            val_by_tf[tf].append(_lp[np.isfinite(_lp)])
+            axS.set_yscale("log")
+            if r == len(TF) - 1:
+                axS.set_xlabel("time")
+            else:
+                axS.tick_params(labelbottom=False)
+            if ci == 0:
+                axS.set_ylabel(f"{ROWLAB[tf]}\ntimescale", fontsize=9)
+            if tf == "cwt":
+                _overlay_coi(axS, tt, scales, dt)                  # cone of influence (CWT only)
+            axS.axhline(twotau, color="w", ls="--", lw=1.2)        # guide; label lives on the marginal
 
-    _vlo, _vhi = np.percentile(np.concatenate(_vals), [2, 98])     # robust shared scale (ignore rare spike / near-zero tails)
-    for pm in _pms:                                                # one normalization -> the shared colorbar is meaningful
-        pm.set_clim(_vlo, _vhi)
-    fig.colorbar(_pms[-1], cax=fig.add_subplot(gs[1, cbar_col]), label="log₁₀ power (shared)")
-    kind = "Haar-DWT (exact)" if method == "blocking" else "CWT" + (" + Haar overlay" if blocking_marginal else "")
-    fig.suptitle(title or f"{kind} scalograms + marginals — {obs_label}", fontsize=13)
+            axM = fig.add_subplot(gs[1 + r, mcol], sharey=axS)
+            if tf == "blocking":                                   # exact dyadic Haar variance -> histogram
+                axM.barh(scales, marg / np.nanmax(marg), height=scales * 0.7, align="center",
+                         color="0.6", alpha=0.6, edgecolor="0.35", lw=0.4)
+                axM.set_xlim(0, 1.08); _lab_x = 0.97; _ha = "right"
+                if r == len(TF) - 1:
+                    axM.set_xlabel("var. frac.", fontsize=7)
+            else:                                                  # smooth CWT marginal (near-variance)
+                axM.plot(marg, scales, "-", color="firebrick", lw=1.6)
+                axM.fill_betweenx(scales, marg, np.nanmin(marg), color="firebrick", alpha=0.15)
+                axM.set_xscale("log")
+                axM.xaxis.set_major_locator(LogLocator(numticks=3)); axM.xaxis.set_minor_locator(NullLocator())
+                _lab_x = 0.03; _ha = "left"
+                if r == len(TF) - 1:
+                    axM.set_xlabel("power (rel.)", fontsize=7)
+            axM.axhline(twotau, color="0.35", ls="--", lw=1)
+            _ly = min(max(twotau, scales.min()), scales.max())     # keep the label ON-plot even at the finest scale
+            axM.text(_lab_x, _ly, f" 2τ≈{twotau:.0f} ", transform=axM.get_yaxis_transform(),
+                     ha=_ha, va="bottom", fontsize=8, color="0.2",
+                     bbox=dict(boxstyle="round,pad=0.15", facecolor="white", alpha=0.72, edgecolor="none"))
+            axM.tick_params(left=False, labelleft=False); axM.spines["left"].set_visible(False)
+            axM.tick_params(axis="x", labelsize=7, pad=1); axM.margins(y=0)
+
+    for r, tf in enumerate(TF):                                    # one colorbar per transform row (per-tf normalization)
+        _vlo, _vhi = np.percentile(np.concatenate(val_by_tf[tf]), [2, 98])
+        for pm in pm_by_tf[tf]:
+            pm.set_clim(_vlo, _vhi)
+        fig.colorbar(pm_by_tf[tf][-1], cax=fig.add_subplot(gs[1 + r, cbar_col]),
+                     label=f"log₁₀ power · {ROWLAB[tf].split()[0]}")
+    fig.suptitle(title or f"{obs_label} — trace + " + " + ".join(ROWLAB[tf] for tf in TF), fontsize=13)
     return fig
 
 

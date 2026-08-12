@@ -1,7 +1,7 @@
 """mdtutorial.py — the shipped, importable simulation + analysis core for the Trp-cage MD tutorial.
 
 Purpose-built companion module (see CLAUDE.md). The polished per-figure notebooks and the determinism
-test `import mdtutorial as mdt` and call these functions; `md_minimal.ipynb` inlines the same bodies
+test `import mdtutorial as mdt` and call these functions; `minimal.ipynb` inlines the same bodies
 verbatim (so a reader can see the whole skeleton in one place). This is a FAITHFUL extraction of the
 pipeline that used to be inlined from `core_cells.py`'s string constants — same behavior, now with an
 explicit functional API and no shared module globals: state travels in a `PreparedSystem` bundle.
@@ -275,12 +275,12 @@ def load_prepared(out_root=".", seed=2024, temp_K=300.0):
     """Reconstruct a PreparedSystem from save_prepared()'s files (system.xml + stage4_minimized.pdb),
     re-picking the platform on THIS machine so the run ports across hardware. Skips prep + minimize
     entirely -- the downstream figure notebooks call this instead of prepare_system(). Errors clearly if
-    fig1's output is absent: fig2+ REQUIRE it and there is no silent re-prep."""
+    01's output is absent: 02+ REQUIRE it and there is no silent re-prep."""
     min_pdb, sys_xml = outp("stage4_minimized.pdb", out_root), outp("system.xml", out_root)
     if not (os.path.exists(min_pdb) and os.path.exists(sys_xml)):
         raise FileNotFoundError(
-            f"No prepared system in {out_root}/ (need system.xml + stage4_minimized.pdb). Run the Figure 1 "
-            f"notebook (fig1_build_system) first -- it prepares and saves the system this notebook loads.")
+            f"No prepared system in {out_root}/ (need system.xml + stage4_minimized.pdb). Run the "
+            f"01_build_system notebook first -- it prepares and saves the system this notebook loads.")
     pdb = app.PDBFile(min_pdb)
     system = mm.XmlSerializer.deserialize(open(sys_xml).read())
     sim, platform, props = pick_platform(pdb.topology, system, pdb.positions, seed, temp_K)
@@ -290,24 +290,24 @@ def load_prepared(out_root=".", seed=2024, temp_K=300.0):
 
 def load_or_prepare(prep_root, out_root=None, seed=2024, temp_K=300.0, pdb_id="1L2Y", verbose=True):
     """Return a PreparedSystem, degrading gracefully so every notebook is SELF-SUFFICIENT: LOAD the system
-    fig1 saved (load_prepared) if it's there, else PREPARE a fresh one here (prepare_system + save_prepared).
-    The fig1 -> fig2 -> fig3 order sharing one prep needs a shared filesystem -- true locally, but NOT on Colab
+    01 saved (load_prepared) if it's there, else PREPARE a fresh one here (prepare_system + save_prepared).
+    The 01 -> 02 -> 03 order sharing one prep needs a shared filesystem -- true locally, but NOT on Colab
     (each notebook runs in its own VM) or when a notebook is opened standalone. This is the ONE place that
-    logic lives; fig2/fig3 call it instead of re-implementing the try/except. The fresh fallback is an
+    logic lives; 02/03 call it instead of re-implementing the try/except. The fresh fallback is an
     INDEPENDENT solvation (its own water) -- fine for dynamics, not for bit-for-bit reproducibility -- and the
     print states which path ran. `out_root` (where a fresh prep + its stage PDBs are written) defaults to
-    `prep_root`. To share fig1's EXACT prep across VMs on Colab, point `prep_root` at a persisted location."""
+    `prep_root`. To share 01's EXACT prep across VMs on Colab, point `prep_root` at a persisted location."""
     if out_root is None:
         out_root = prep_root
     try:
         prep = load_prepared(prep_root, seed=seed, temp_K=temp_K)
         if verbose:
-            print("loaded the prepared system saved by Figure 1.")
+            print("loaded the prepared system saved by 01_build_system.")
         return prep
     except FileNotFoundError:
         if verbose:
-            print("No saved prep found -- preparing a FRESH system here (its own solvation, not fig1's exact")
-            print("  one; fine for dynamics, use fig1's saved prep for bit-for-bit reproducibility).")
+            print("No saved prep found -- preparing a FRESH system here (its own solvation, not 01's exact")
+            print("  one; fine for dynamics, use 01's saved prep for bit-for-bit reproducibility).")
         prep = prepare_system(pdb_id=pdb_id, seed=seed, out_root=out_root, temp_K=temp_K, verbose=verbose)
         save_prepared(prep, out_root)
         return prep
@@ -326,8 +326,8 @@ def _prep_fingerprint(prep):
 def run_repeat(prep, seed, n_prod_ps=200, run_mode="interactive", out_root=".",
                force_rerun=False, load_reference=False, ref_root="reference_run", temp_K=300.0):
     """Run one independent production trajectory from the prepared, minimized system. Uses a FRESH OpenMM
-    Context (the integrator seed is applied at Context creation, so the Langevin stream is reproducible;
-    re-seeding a reused Context does NOT reset the GPU RNG and silently breaks reproducibility). Writes
+    Context per run -- in our tests that reproduces the seeded trajectory; re-using and re-seeding a Context
+    did not (the mechanism is untraced, so we state the recipe, not the cause). Writes
     traj_<seed>.dcd + the scalar state log; in run_mode='canonical' also the restart/reproduction slate.
     Returns the trajectory path.
 
@@ -408,9 +408,10 @@ def compute_cvs(dcd, top):
     collective variables: **Ca RMSD** (fold stability), helix fraction (simplified DSSP), the two
     alpha-helix backbone H-bond distances (GLN5 N-H..ASN1 O=C, ASP9 N-H..GLN5 O=C; donor i to carbonyl
     i-4), the **ASP9-ARG16 salt bridge** (min carboxylate-guanidinium distance; the canonical Trp-cage
-    stabilizer, slow), and two backbone dihedrals -- **PRO19 psi** (rare slow basin hop) and **SER13 psi**
-    (3-10 helix; fast, multi-scale). Labels canonical (PDB 1-20); mdtraj `resid`/index is 0-based (index
-    4 = GLN5, 8 = ASP9, 12 = SER13, 15 = ARG16, 18 = PRO19)."""
+    stabilizer, slow), and two dihedrals -- **ILE4 chi1** (side-chain rotamer; mostly parked in g-, rare
+    discrete hops to t/g+, strongly run-dependent) and **SER13 psi** (backbone; 3-10 helix; fast,
+    multi-scale). Labels canonical (PDB 1-20); mdtraj `resid`/index is 0-based (index 3 = ILE4,
+    4 = GLN5, 8 = ASP9, 12 = SER13, 15 = ARG16)."""
     full = md.load(dcd, top=top)
     if full.n_frames == 0:                                # networked-FS flush lag or a clobbered file
         raise RuntimeError(f"{dcd} read back with 0 frames -- the trajectory was not yet durable on disk "
@@ -423,14 +424,21 @@ def compute_cvs(dcd, top):
     pidx, psi = md.compute_psi(t)
     _psi = lambda ridx: next(np.degrees(psi[:, k]) for k, idx in enumerate(pidx)
                              if t.topology.atom(idx[1]).residue.index == ridx)   # 0-based resid
-    p19, ser13 = _psi(18), _psi(12)                           # PRO19 (rare slow basin hop) · SER13 (3-10 helix, fast jitter)
+    ser13 = _psi(12)                                          # SER13 psi (3-10 helix, fast jitter)
+    cidx, chi = md.compute_chi1(t)                            # side-chain chi1; atoms N-CA-CB-CG*, idx[0]=N
+    _chi1 = lambda ridx: next(np.degrees(chi[:, k]) for k, idx in enumerate(cidx)
+                              if t.topology.atom(idx[0]).residue.index == ridx)   # 0-based resid
+    ile4 = _chi1(3)                                           # ILE4 chi1: side-chain rotamer hops between g+/t/g- wells
     ca = t.topology.select("name CA")
     _o, _n = t.topology.select("resid 8 and name OD1 OD2"), t.topology.select("resid 15 and name NH1 NH2 NE")
     d9r16 = md.compute_distances(t, [[i, j] for i in _o for j in _n]).min(1) * 10   # ASP9 carboxylate <-> ARG16 guanidinium
+    _ind = t.topology.select("resid 5 and name CG CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2")  # TRP6 indole ring
+    _lid = t.topology.select("resid 16 17 18 and name CA")                           # PRO17-19 Cα (the poly-Pro lid)
+    indolelid = np.linalg.norm(x[:, _ind].mean(1) - x[:, _lid].mean(1), axis=1)       # indole<->polyPro CV -- the 03 cage coordinate
     return dict(t=t, ps=np.arange(t.n_frames), rmsd=md.rmsd(t, t, 0, atom_indices=ca) * 10,   # Ca RMSD (fold stability)
                 helix=(md.compute_dssp(t, simplified=True) == 'H').mean(1),
                 gln5=dist(a(4, "H"), a(0, "O")), asp9=dist(a(8, "H"), a(4, "O")),
-                p19=p19, ser13=ser13, d9r16=d9r16)
+                ile4=ile4, ser13=ser13, d9r16=d9r16, indolelid=indolelid)
 
 
 def load_reference(ref_root="reference_run", dt_ps=None):
@@ -479,7 +487,7 @@ def integrated_autocorr_time(x):
     the zero-lag self-term; for a single exponential tau equals the relaxation time). Truncated by Geyer's
     (1992) initial-positive-sequence rule: for a reversible process the consecutive-PAIR autocorrelations
     rho(2m+1)+rho(2m+2) are positive, so we sum pairs and stop at the first non-positive one -- a
-    conservative estimate. A run of N frames holds N_eff = N/(2 tau) independent samples (white noise ->
+    stable estimate (noise-tail exclusion; the finite-run bias on tau is still downward, a lower bound). A run of N frames holds N_eff = N/(2 tau) independent samples (white noise ->
     tau=1/2 -> N_eff=N)."""
     x = np.asarray(x, float) - np.mean(x); n = len(x); v = np.dot(x, x) / n
     if v == 0:

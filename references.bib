@@ -1,0 +1,655 @@
+% References for the Trp-cage MD tutorial / review manuscript.
+% Compiled 2026-07-14, extended 2026-07-21. DOIs verified via web lookup; spot-check page numbers before submission.
+% Themes: (0) system & folding background, then MD reproducibility -- best practices, determinism,
+%         shadowing, cross-engine, FAIR data, software, sampling/uncertainty, pedagogy.
+
+% ---------- 0. System: Trp-cage / 1L2Y and its folding-simulation literature ----------
+@article{neidigh2002trpcage,
+  author  = {Jonathan W. Neidigh and R. Matthew Fesinmeyer and Niels H. Andersen},
+  title   = {Designing a 20-Residue Protein},
+  journal = {Nature Structural Biology},
+  year    = {2002},
+  volume  = {9},
+  number  = {6},
+  pages   = {425--430},
+  doi     = {10.1038/nsb798},
+  note    = {PDB 1L2Y; the Trp-cage TC5b miniprotein. PMID 11979279.}
+}
+
+@article{simmerling2002allatom,
+  author  = {Carlos Simmerling and Bentley Strockbine and Adrian E. Roitberg},
+  title   = {All-Atom Structure Prediction and Folding Simulations of a Stable Protein},
+  journal = {Journal of the American Chemical Society},
+  year    = {2002},
+  volume  = {124},
+  number  = {38},
+  pages   = {11258--11259},
+  doi     = {10.1021/ja0273851},
+  note    = {Ab initio folding of Trp-cage to ~1 Angstrom Calpha RMSD. PMID 12236726.}
+}
+
+@article{zhou2003trpcage,
+  author  = {Ruhong Zhou},
+  title   = {Trp-Cage: Folding Free Energy Landscape in Explicit Water},
+  journal = {Proceedings of the National Academy of Sciences},
+  year    = {2003},
+  volume  = {100},
+  number  = {23},
+  pages   = {13280--13285},
+  doi     = {10.1073/pnas.2233312100},
+  note    = {PMID 14581616.}
+}
+
+@article{lindorfflarsen2011fastfolding,
+  author  = {Kresten Lindorff-Larsen and Stefano Piana and Ron O. Dror and David E. Shaw},
+  title   = {How Fast-Folding Proteins Fold},
+  journal = {Science},
+  year    = {2011},
+  volume  = {334},
+  number  = {6055},
+  pages   = {517--520},
+  doi     = {10.1126/science.1208351},
+  note    = {Long-timescale MD of 12 fast folders, Trp-cage among them. PMID 22034434.}
+}
+
+@article{vijaykumar1987ubiquitin,
+  author  = {Senadhi Vijay-Kumar and Charles E. Bugg and William J. Cook},
+  title   = {Structure of Ubiquitin Refined at 1.8 {\AA} Resolution},
+  journal = {Journal of Molecular Biology},
+  year    = {1987},
+  volume  = {194},
+  number  = {3},
+  pages   = {531--544},
+  doi     = {10.1016/0022-2836(87)90679-6},
+  note    = {PDB 1UBQ; the X-ray repair-contrast example (fig1, 1.2b). PMID 3041007.}
+}
+
+% ---------- 0b. Force fields & water models (sandbox menu) ----------
+% DOIs verified 2026-07-21 against publisher/PubMed. VERSION-DRIFT NOTE: our installed OpenMM (8.5.1)
+% ships charmm36.xml from toppar_c36_aug15 (par_all36_prot.prm = ORIGINAL CHARMM36, Best 2012). Newer
+% OpenMM builds ship CHARMM36m (Huang 2017) in the SAME charmm36.xml -- the exact variant a user gets
+% depends on their installed OpenMM (recorded per run in run_meta.json). Cite Best 2012 for our runs.
+@article{maier2015ff14sb,
+  author  = {James A. Maier and Carmenza Martinez and Koushik Kasavajhala and Lauren Wickstrom and Kevin E. Hauser and Carlos Simmerling},
+  title   = {ff14SB: Improving the Accuracy of Protein Side Chain and Backbone Parameters from ff99SB},
+  journal = {Journal of Chemical Theory and Computation},
+  year    = {2015},
+  volume  = {11},
+  number  = {8},
+  pages   = {3696--3713},
+  doi     = {10.1021/acs.jctc.5b00255},
+  note    = {Protein FF bundled in OpenMM amber14-all.xml. PMID 26574453.}
+}
+
+@article{lindorfflarsen2010ildn,
+  author  = {Kresten Lindorff-Larsen and Stefano Piana and Kim Palmo and Paul Maragakis and John L. Klepeis and Ron O. Dror and David E. Shaw},
+  title   = {Improved Side-Chain Torsion Potentials for the Amber ff99SB Protein Force Field},
+  journal = {Proteins: Structure, Function, and Bioinformatics},
+  year    = {2010},
+  volume  = {78},
+  number  = {8},
+  pages   = {1950--1958},
+  doi     = {10.1002/prot.22711},
+  note    = {ff99SB-ILDN; the "amber99SB-ILDN + TIP3P" sandbox FF_MENU preset. NOT the Science 2011 fast-folding paper. PMID 20408171.}
+}
+
+@article{best2012charmm36,
+  author  = {Robert B. Best and Xiao Zhu and Jihyun Shim and Pedro E. M. Lopes and Jeetain Mittal and Michael Feig and Alexander D. {MacKerell, Jr.}},
+  title   = {Optimization of the Additive {CHARMM} All-Atom Protein Force Field Targeting Improved Sampling of the Backbone $\phi$, $\psi$ and Side-Chain $\chi_1$ and $\chi_2$ Dihedral Angles},
+  journal = {Journal of Chemical Theory and Computation},
+  year    = {2012},
+  volume  = {8},
+  number  = {9},
+  pages   = {3257--3273},
+  doi     = {10.1021/ct300400x},
+  note    = {Original CHARMM36 protein FF -- the variant our OpenMM charmm36.xml ships. PMID 23341755.}
+}
+
+@article{huang2017charmm36m,
+  author  = {Jing Huang and Sarah Rauscher and Grzegorz Nawrocki and Ting Ran and Michael Feig and Bert L. de Groot and Helmut Grubm{\"u}ller and Alexander D. {MacKerell, Jr.}},
+  title   = {CHARMM36m: An Improved Force Field for Folded and Intrinsically Disordered Proteins},
+  journal = {Nature Methods},
+  year    = {2017},
+  volume  = {14},
+  number  = {1},
+  pages   = {71--73},
+  doi     = {10.1038/nmeth.4067},
+  note    = {C36m; shipped in NEWER OpenMM charmm36.xml (version-dependent -- see note above).}
+}
+
+@article{jorgensen1983tip3p,
+  author  = {William L. Jorgensen and Jayaraman Chandrasekhar and Jeffry D. Madura and Roger W. Impey and Michael L. Klein},
+  title   = {Comparison of Simple Potential Functions for Simulating Liquid Water},
+  journal = {The Journal of Chemical Physics},
+  year    = {1983},
+  volume  = {79},
+  number  = {2},
+  pages   = {926--935},
+  doi     = {10.1063/1.445869}
+}
+
+@article{izadi2014opc,
+  author  = {Saeed Izadi and Ramu Anandakrishnan and Alexey V. Onufriev},
+  title   = {Building Water Models: A Different Approach},
+  journal = {The Journal of Physical Chemistry Letters},
+  year    = {2014},
+  volume  = {5},
+  number  = {21},
+  pages   = {3863--3871},
+  doi     = {10.1021/jz501780a},
+  note    = {OPC 4-site model. PMID 25400877.}
+}
+
+@article{berendsen1987spce,
+  author  = {H. J. C. Berendsen and J. R. Grigera and T. P. Straatsma},
+  title   = {The Missing Term in Effective Pair Potentials},
+  journal = {The Journal of Physical Chemistry},
+  year    = {1987},
+  volume  = {91},
+  number  = {24},
+  pages   = {6269--6271},
+  doi     = {10.1021/j100308a038}
+}
+
+@article{horn2004tip4pew,
+  author  = {Hans W. Horn and William C. Swope and Jed W. Pitera and Jeffry D. Madura and Thomas J. Dick and Greg L. Hura and Teresa Head-Gordon},
+  title   = {Development of an Improved Four-Site Water Model for Biomolecular Simulations: {TIP4P-Ew}},
+  journal = {The Journal of Chemical Physics},
+  year    = {2004},
+  volume  = {120},
+  number  = {20},
+  pages   = {9665--9678},
+  doi     = {10.1063/1.1683075},
+  note    = {OPC is solvated with this 4-site geometry (addSolvent model="tip4pew"). PMID 15267980.}
+}
+
+@article{mackerell1998charmm,
+  author  = {A. D. MacKerell and D. Bashford and M. Bellott and R. L. Dunbrack and J. D. Evanseck and M. J. Field and S. Fischer and J. Gao and H. Guo and S. Ha and D. Joseph-McCarthy and L. Kuchnir and K. Kuczera and F. T. K. Lau and C. Mattos and S. Michnick and T. Ngo and D. T. Nguyen and B. Prodhom and W. E. Reiher and B. Roux and M. Schlenkrich and J. C. Smith and R. Stote and J. Straub and M. Watanabe and J. Wi{\'o}rkiewicz-Kuczera and D. Yin and M. Karplus},
+  title   = {All-Atom Empirical Potential for Molecular Modeling and Dynamics Studies of Proteins},
+  journal = {The Journal of Physical Chemistry B},
+  year    = {1998},
+  volume  = {102},
+  number  = {18},
+  pages   = {3586--3616},
+  doi     = {10.1021/jp973084f},
+  note    = {CHARMM modified TIP3P (LJ on H), used by charmm36/water.xml. PMID 24889800.}
+}
+
+% ---------- 0c. Methods: electrostatics & integrator ----------
+@article{darden1993pme,
+  author  = {Tom Darden and Darrin York and Lee Pedersen},
+  title   = {Particle Mesh {Ewald}: An {$N\cdot\log(N)$} Method for {Ewald} Sums in Large Systems},
+  journal = {The Journal of Chemical Physics},
+  year    = {1993},
+  volume  = {98},
+  number  = {12},
+  pages   = {10089--10092},
+  doi     = {10.1063/1.464397}
+}
+
+@article{essmann1995smoothpme,
+  author  = {Ulrich Essmann and Lalith Perera and Max L. Berkowitz and Tom Darden and Hsing Lee and Lee G. Pedersen},
+  title   = {A Smooth Particle Mesh {Ewald} Method},
+  journal = {The Journal of Chemical Physics},
+  year    = {1995},
+  volume  = {103},
+  number  = {19},
+  pages   = {8577--8593},
+  doi     = {10.1063/1.470117},
+  note    = {The smooth-PME variant OpenMM's PME implements.}
+}
+
+@article{zhang2019lfmiddle,
+  author  = {Zhijun Zhang and Xinzijian Liu and Kangyu Yan and Mark E. Tuckerman and Jian Liu},
+  title   = {Unified Efficient Thermostat Scheme for the Canonical Ensemble with Holonomic or Isokinetic Constraints via Molecular Dynamics},
+  journal = {The Journal of Physical Chemistry A},
+  year    = {2019},
+  volume  = {123},
+  number  = {28},
+  pages   = {6056--6079},
+  doi     = {10.1021/acs.jpca.9b02771},
+  note    = {LFMiddle discretization = what OpenMM LangevinMiddleIntegrator implements; related to BAOAB (Leimkuhler \& Matthews, Proc. R. Soc. A 472:20160138). PMID 31117592.}
+}
+
+% ---------- A. Best practices ----------
+@article{braun2019foundations,
+  author  = {E. Braun and J. Gilmer and H. B. Mayes and D. L. Mobley and J. I. Monroe and S. Prasad and D. M. Zuckerman},
+  title   = {Best Practices for Foundations in Molecular Simulations [Article v1.0]},
+  journal = {Living Journal of Computational Molecular Science},
+  year    = {2019},
+  volume  = {1},
+  number  = {1},
+  pages   = {5957},
+  doi     = {10.33011/livecoms.1.1.5957}
+}
+
+@article{craven2025mosdef,
+  author  = {Nicholas C. Craven and Ramanish Singh and Co D. Quach and Justin B. Gilmer and Brad Crawford and Eliseo Marin-Rimoldi and Ryan Smith and Ryan DeFever and Maxim S. Dyukov and Jenny W. Fothergill and Chris Jones and Timothy C. Moore and Brandon L. Butler and Joshua A. Anderson and Christopher R. Iacovella and Eric Jankowski and Edward J. Maginn and Jeffrey J. Potoff and Sharon C. Glotzer and Peter T. Cummings and Clare McCabe and J. Ilja Siepmann},
+  title   = {Achieving Reproducibility and Replicability of Molecular Dynamics and Monte Carlo Simulations Using the Molecular Simulation Design Framework (MoSDeF)},
+  journal = {Journal of Chemical \& Engineering Data},
+  year    = {2025},
+  volume  = {70},
+  number  = {6},
+  pages   = {2178--2199},
+  doi     = {10.1021/acs.jced.5c00010}
+}
+
+% ---------- B. Floating-point / GPU determinism ----------
+@inproceedings{shanmugavelu2024fpna,
+  author    = {Sanjif Shanmugavelu and Mathieu Taillefumier and Christopher Culver and Oscar Hernandez and Mark Coletti and Ada Sedova},
+  title     = {Impacts of Floating-Point Non-Associativity on Reproducibility for {HPC} and Deep Learning Applications},
+  booktitle = {Proceedings of the SC'24 Workshops of the International Conference on High Performance Computing, Network, Storage, and Analysis},
+  year      = {2024},
+  doi       = {10.1109/SCW63240.2024.00028},
+  eprint    = {2408.05148},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.DC}
+}
+
+% ---------- C. Shadowing (why statistical reproduction is valid) ----------
+@article{tupper2009shadowing,
+  author  = {P. F. Tupper},
+  title   = {The Relation between Approximation in Distribution and Shadowing in Molecular Dynamics},
+  journal = {SIAM Journal on Applied Dynamical Systems},
+  year    = {2009},
+  volume  = {8},
+  number  = {3},
+  pages   = {1213--1234},
+  doi     = {10.1137/08072526X},
+  eprint  = {0805.3999},
+  archivePrefix = {arXiv},
+  note    = {Verify volume/pages against DOI}
+}
+
+@article{hayes2003shadowing,
+  author  = {Wayne B. Hayes},
+  title   = {Shadowing-Based Reliability Decay in Softened {N}-body Simulations},
+  journal = {The Astrophysical Journal Letters},
+  year    = {2003},
+  volume  = {587},
+  pages   = {L59--L62},
+  doi     = {10.1086/375013},
+  eprint  = {astro-ph/0211128},
+  archivePrefix = {arXiv},
+  note    = {Verify volume/pages/DOI against publisher}
+}
+
+% ---------- D. Cross-engine reproducibility ----------
+@article{shirts2017sampl5,
+  author  = {Michael R. Shirts and Christoph Klein and Jason M. Swails and Jian Yin and Michael K. Gilson and David L. Mobley and David A. Case and Ellen D. Zhong},
+  title   = {Lessons Learned from Comparing Molecular Dynamics Engines on the {SAMPL5} Dataset},
+  journal = {Journal of Computer-Aided Molecular Design},
+  year    = {2017},
+  volume  = {31},
+  number  = {1},
+  pages   = {147--161},
+  doi     = {10.1007/s10822-016-9977-1},
+  note    = {Verify author list against DOI}
+}
+
+% ---------- E. Data deposition / FAIR repositories ----------
+@misc{mddb,
+  author       = {{Molecular Dynamics Data Bank (MDDB)}},
+  title        = {{MDDB}: Molecular Dynamics Data Bank -- The European Repository for Biosimulation Data},
+  howpublished = {\url{https://mddbr.eu/}},
+  note         = {EU Horizon project 101094651; accessed 2026-07-14}
+}
+
+@article{beltran2024cv19db,
+  author  = {Daniel Beltr{\'a}n and Adam Hospital and Josep Llu{\'i}s Gelp{\'i} and Modesto Orozco},
+  title   = {A New Paradigm for Molecular Dynamics Databases: the {COVID-19} Database, the Legacy of a Titanic Community Effort},
+  journal = {Nucleic Acids Research},
+  year    = {2024},
+  volume  = {52},
+  number  = {D1},
+  pages   = {D393--D403},
+  doi     = {10.1093/nar/gkad991}
+}
+
+% ---------- F. Software used ----------
+@article{eastman2017openmm7,
+  author  = {Peter Eastman and Jason Swails and John D. Chodera and Robert T. McGibbon and Yutong Zhao and Kyle A. Beauchamp and Lee-Ping Wang and Andrew C. Simmonett and Matthew P. Harrigan and Chaya D. Stern and Rafal P. Wiewiora and Bernard R. Brooks and Vijay S. Pande},
+  title   = {{OpenMM 7}: Rapid Development of High Performance Algorithms for Molecular Dynamics},
+  journal = {PLoS Computational Biology},
+  year    = {2017},
+  volume  = {13},
+  number  = {7},
+  pages   = {e1005659},
+  doi     = {10.1371/journal.pcbi.1005659}
+}
+
+@article{eastman2024openmm8,
+  author  = {Peter Eastman and others},
+  title   = {{OpenMM 8}: Molecular Dynamics Simulation with Machine Learning Potentials},
+  journal = {The Journal of Physical Chemistry B},
+  year    = {2024},
+  volume  = {128},
+  number  = {1},
+  pages   = {109--116},
+  doi     = {10.1021/acs.jpcb.3c06662},
+  eprint  = {2310.03121},
+  archivePrefix = {arXiv},
+  note    = {~25 authors; full list at DOI}
+}
+
+@misc{openmm_deterministicforces,
+  author       = {{OpenMM Development Team}},
+  title        = {{OpenMM} User Guide: Platform-Specific Properties ({DeterministicForces})},
+  howpublished = {\url{http://docs.openmm.org}},
+  note         = {CUDA/HIP platform property; no dedicated paper; accessed 2026-07-14}
+}
+
+% ---------- G. Trusting your outputs: equilibration, autocorrelation, block averaging, uncertainty ----------
+@article{grossfield2018uncertainty,
+  author  = {Alan Grossfield and Paul N. Patrone and Daniel R. Roe and Andrew J. Schultz and Daniel Siderius and Daniel M. Zuckerman},
+  title   = {Best Practices for Quantification of Uncertainty and Sampling Quality in Molecular Simulations [Article v1.0]},
+  journal = {Living Journal of Computational Molecular Science},
+  year    = {2018},
+  volume  = {1},
+  number  = {1},
+  pages   = {5067},
+  doi     = {10.33011/livecoms.1.1.5067}
+}
+
+@article{flyvbjerg1989blockaveraging,
+  author  = {Henrik Flyvbjerg and Henrik Gordon Petersen},
+  title   = {Error Estimates on Averages of Correlated Data},
+  journal = {The Journal of Chemical Physics},
+  year    = {1989},
+  volume  = {91},
+  number  = {1},
+  pages   = {461--466},
+  doi     = {10.1063/1.457480}
+}
+
+@article{geyer1992mcmc,
+  author  = {Charles J. Geyer},
+  title   = {Practical Markov Chain Monte Carlo},
+  journal = {Statistical Science},
+  year    = {1992},
+  volume  = {7},
+  number  = {4},
+  pages   = {473--483},
+  doi     = {10.1214/ss/1177011137},
+  note    = {The initial-positive-sequence (IPS) estimator for the integrated autocorrelation time (rigorous version truncates on the first negative PAIR).}
+}
+
+@incollection{sokal1997montecarlo,
+  author    = {Alan D. Sokal},
+  title     = {Monte Carlo Methods in Statistical Mechanics: Foundations and New Algorithms},
+  booktitle = {Functional Integration: Basics and Applications (Carg{\`e}se 1996)},
+  series    = {NATO ASI Series B: Physics},
+  volume    = {361},
+  publisher = {Springer},
+  year      = {1997},
+  pages     = {131--192},
+  doi       = {10.1007/978-1-4899-0319-8_6},
+  note      = {Classic derivation of the integrated autocorrelation time tau = 1/2 + sum rho(k); the 1/2 is the zero-lag self-term. Verify pages.}
+}
+
+@article{chodera2016equilibration,
+  author  = {John D. Chodera},
+  title   = {A Simple Method for Automated Equilibration Detection in Molecular Simulations},
+  journal = {Journal of Chemical Theory and Computation},
+  year    = {2016},
+  volume  = {12},
+  number  = {4},
+  pages   = {1799--1805},
+  doi     = {10.1021/acs.jctc.5b00784}
+}
+
+% ---------- B (addendum). The CS solution to FP-nonassociativity: reproducible reductions ----------
+@article{demmel2020reproducible,
+  author  = {James Demmel and Hong Diep Nguyen},
+  title   = {Algorithms for Efficient Reproducible Floating Point Summation},
+  journal = {ACM Transactions on Mathematical Software},
+  year    = {2020},
+  volume  = {46},
+  number  = {3},
+  pages   = {22},
+  doi     = {10.1145/3389360},
+  note    = {See also ReproBLAS: https://bebop.cs.berkeley.edu/reproblas/}
+}
+
+% ---------- C (addendum). Shadow Hamiltonian / symplectic long-time reliability ----------
+@article{engle2005shadowham,
+  author  = {Robert D. Engle and Robert D. Skeel and Matthew Drees},
+  title   = {Monitoring Energy Drift with Shadow Hamiltonians},
+  journal = {Journal of Computational Physics},
+  year    = {2005},
+  volume  = {206},
+  number  = {2},
+  pages   = {432--452},
+  doi     = {10.1016/j.jcp.2004.12.009},
+  note    = {Verify DOI/pages against publisher}
+}
+
+% ---------- E (addendum). Another FAIR MD database example ----------
+@article{rodriguezespigares2020gpcrmd,
+  author  = {Ismael Rodr{\'i}guez-Espigares and others},
+  title   = {{GPCRmd} Uncovers the Dynamics of the {3D-GPCRome}},
+  journal = {Nature Methods},
+  year    = {2020},
+  volume  = {17},
+  pages   = {777--787},
+  doi     = {10.1038/s41592-020-0884-y},
+  note    = {Large community-authored consortium; full list at DOI; database at http://gpcrmd.org/}
+}
+
+% ---------- F. Textbook / pedagogical background (numerical integration) ----------
+@book{giordano2006computational,
+  author    = {Giordano, Nicholas J. and Nakanishi, Hisao},
+  title     = {Computational Physics},
+  edition   = {2nd},
+  publisher = {Pearson Prentice Hall},
+  year      = {2006},
+  isbn      = {978-0131469907},
+  note      = {Undergraduate background on numerical integration (Verlet, Euler-Cromer, Runge-Kutta) and intro MD; 2nd ed. adds Nakanishi (1st ed. 1997 was Giordano solo). Verify publisher/ISBN/year against a physical copy.}
+}
+
+% ---------- H. Ensemble fluctuations (expected variance of the CVs) & MD texts ----------
+@article{lebowitz1967fluctuations,
+  author  = {J. L. Lebowitz and J. K. Percus and L. Verlet},
+  title   = {Ensemble Dependence of Fluctuations with Application to Machine Computations},
+  journal = {Physical Review},
+  year    = {1967},
+  volume  = {153},
+  number  = {1},
+  pages   = {250--254},
+  doi     = {10.1103/PhysRev.153.250},
+  note    = {Ensemble-dependence of fluctuation formulas for MD -- the basis for the EXPECTED variance of T/E (e.g. sigma_T/T = sqrt(2/Ndof)).}
+}
+
+@book{frenkel2002understanding,
+  author    = {Daan Frenkel and Berend Smit},
+  title     = {Understanding Molecular Simulation: From Algorithms to Applications},
+  edition   = {2nd},
+  publisher = {Academic Press},
+  year      = {2002},
+  isbn      = {978-0122673511},
+  note      = {Standard MD text; canonical-ensemble fluctuation formulas. 3rd ed. 2023. Verify ISBN/edition.}
+}
+
+@book{allen2017computer,
+  author    = {Michael P. Allen and Dominic J. Tildesley},
+  title     = {Computer Simulation of Liquids},
+  edition   = {2nd},
+  publisher = {Oxford University Press},
+  year      = {2017},
+  isbn      = {978-0198803195},
+  note      = {Standard MD text; computing properties and fluctuations. Verify ISBN/edition.}
+}
+
+@article{torrence1998wavelet,
+  author  = {Torrence, Christopher and Compo, Gilbert P.},
+  title   = {A Practical Guide to Wavelet Analysis},
+  journal = {Bulletin of the American Meteorological Society},
+  volume  = {79},
+  number  = {1},
+  pages   = {61--78},
+  year    = {1998},
+  doi     = {10.1175/1520-0477(1998)079<0061:APGTWA>2.0.CO;2},
+  note    = {Wavelet power spectrum, cone of influence, and the C_delta reconstruction factor (0.776 for Morlet w0=6).}
+}
+
+@article{liu2007rectification,
+  author  = {Liu, Yonggang and Liang, X. San and Weisberg, Robert H.},
+  title   = {Rectification of the Bias in the Wavelet Power Spectrum},
+  journal = {Journal of Atmospheric and Oceanic Technology},
+  volume  = {24},
+  number  = {12},
+  pages   = {2093--2102},
+  year    = {2007},
+  doi     = {10.1175/2007JTECHO511.1},
+  note    = {The 1/s scale-bias correction applied to the CWT power here.}
+}
+
+@book{percival2000wavelet,
+  author    = {Percival, Donald B. and Walden, Andrew T.},
+  title     = {Wavelet Methods for Time Series Analysis},
+  publisher = {Cambridge University Press},
+  series    = {Cambridge Series in Statistical and Probabilistic Mathematics},
+  year      = {2000},
+  isbn      = {978-0521640688},
+  doi       = {10.1017/CBO9780511841040},
+  note      = {Haar wavelet variance = the per-octave variance that Flyvbjerg-Petersen blocking estimates. Verify ISBN/edition.}
+}
+
+% ---------- I. Enhanced sampling: steered MD, umbrella, MBAR/WHAM (nb03 §3.5) ----------
+% Added 2026-08-10; core metadata (title/authors/journal/volume/year) verified via Crossref. Pages per
+% standard citation -- spot-check at the DOI before submission (per file header).
+@article{jarzynski1997nonequilibrium,
+  author  = {Christopher Jarzynski},
+  title   = {Nonequilibrium Equality for Free Energy Differences},
+  journal = {Physical Review Letters},
+  year    = {1997},
+  volume  = {78},
+  number  = {14},
+  pages   = {2690--2693},
+  doi     = {10.1103/PhysRevLett.78.2690},
+  note    = {The nonequilibrium work relation; §3.5 -- average steered-pull work overestimates ΔF.}
+}
+
+@article{torrie1977umbrella,
+  author  = {G. M. Torrie and J. P. Valleau},
+  title   = {Nonphysical Sampling Distributions in {Monte Carlo} Free-Energy Estimation: Umbrella Sampling},
+  journal = {Journal of Computational Physics},
+  year    = {1977},
+  volume  = {23},
+  number  = {2},
+  pages   = {187--199},
+  doi     = {10.1016/0021-9991(77)90121-8},
+  note    = {Origin of umbrella sampling; §3.5.}
+}
+
+@article{shirts2008mbar,
+  author  = {Michael R. Shirts and John D. Chodera},
+  title   = {Statistically Optimal Analysis of Samples from Multiple Equilibrium States},
+  journal = {The Journal of Chemical Physics},
+  year    = {2008},
+  volume  = {129},
+  number  = {12},
+  pages   = {124105},
+  doi     = {10.1063/1.2978177},
+  note    = {MBAR (multistate Bennett acceptance ratio); §3.5c -- statistically optimal, binless generalization of WHAM.}
+}
+
+@article{kumar1992wham,
+  author  = {Shankar Kumar and John M. Rosenberg and Djamal Bouzida and Robert H. Swendsen and Peter A. Kollman},
+  title   = {The Weighted Histogram Analysis Method for Free-Energy Calculations on Biomolecules. {I}. The Method},
+  journal = {Journal of Computational Chemistry},
+  year    = {1992},
+  volume  = {13},
+  number  = {8},
+  pages   = {1011--1021},
+  doi     = {10.1002/jcc.540130812},
+  note    = {WHAM; §3.5c -- the histogram-based classic MBAR generalizes.}
+}
+
+@article{klimovich2015guidelines,
+  author  = {Pavel V. Klimovich and Michael R. Shirts and David L. Mobley},
+  title   = {Guidelines for the Analysis of Free Energy Calculations},
+  journal = {Journal of Computer-Aided Molecular Design},
+  year    = {2015},
+  volume  = {29},
+  number  = {5},
+  pages   = {397--411},
+  doi     = {10.1007/s10822-015-9840-9},
+  note    = {Practical FE-analysis guide; §3.5c -- asymptotic error bars go optimistic under poor overlap (why we bootstrap).}
+}
+
+% ---------- J. Software / tools (analysis, visualization, numerics) ----------
+% Added 2026-08-10; DOI'd entries verified via Crossref. (OpenMM = eastman2017openmm7/2024; pymbar = shirts2008mbar.)
+@article{mcgibbon2015mdtraj,
+  author  = {Robert T. McGibbon and Kyle A. Beauchamp and Matthew P. Harrigan and Christoph Klein and Jason M. Swails and Carlos X. Hern{\'a}ndez and Christian R. Schwantes and Lee-Ping Wang and Thomas J. Lane and Vijay S. Pande},
+  title   = {{MDTraj}: A Modern Open Library for the Analysis of Molecular Dynamics Trajectories},
+  journal = {Biophysical Journal},
+  year    = {2015},
+  volume  = {109},
+  number  = {8},
+  pages   = {1528--1532},
+  doi     = {10.1016/j.bpj.2015.08.015},
+  note    = {Trajectory analysis used throughout (Rg / RMSD / distances / dihedrals / SASA).}
+}
+
+@article{rego2015py3dmol,
+  author  = {Nicholas Rego and David Koes},
+  title   = {{3Dmol.js}: Molecular Visualization with {WebGL}},
+  journal = {Bioinformatics},
+  year    = {2015},
+  volume  = {31},
+  number  = {8},
+  pages   = {1322--1324},
+  doi     = {10.1093/bioinformatics/btu829},
+  note    = {py3Dmol = the Python/Jupyter binding to 3Dmol.js; the in-notebook 3-D viewers (mdtviz). Online 2014, issue 2015.}
+}
+
+@article{harris2020numpy,
+  author  = {Charles R. Harris and K. Jarrod Millman and St{\'e}fan J. van der Walt and others},
+  title   = {Array Programming with {NumPy}},
+  journal = {Nature},
+  year    = {2020},
+  volume  = {585},
+  number  = {7825},
+  pages   = {357--362},
+  doi     = {10.1038/s41586-020-2649-2},
+  note    = {Numerical backbone throughout. ~26 authors; full list at DOI.}
+}
+
+@article{virtanen2020scipy,
+  author  = {Pauli Virtanen and Ralf Gommers and Travis E. Oliphant and others},
+  title   = {{SciPy 1.0}: Fundamental Algorithms for Scientific Computing in {Python}},
+  journal = {Nature Methods},
+  year    = {2020},
+  volume  = {17},
+  number  = {3},
+  pages   = {261--272},
+  doi     = {10.1038/s41592-019-0686-2},
+  note    = {logsumexp (MBAR), gaussian_filter1d (reference band). ~35 authors; full list at DOI.}
+}
+
+@article{hunter2007matplotlib,
+  author  = {John D. Hunter},
+  title   = {{Matplotlib}: A {2D} Graphics Environment},
+  journal = {Computing in Science \& Engineering},
+  year    = {2007},
+  volume  = {9},
+  number  = {3},
+  pages   = {90--95},
+  doi     = {10.1109/MCSE.2007.55},
+  note    = {All figures.}
+}
+
+@misc{pymol,
+  author       = {{Schr{\"o}dinger, LLC}},
+  title        = {The {PyMOL} Molecular Graphics System, Open-Source Edition},
+  howpublished = {\url{https://pymol.org/}},
+  note         = {Open-source PyMOL -- the license-free cartoon/stick renders (mdtviz). No dedicated paper; cite the software + version (recorded per run).}
+}
+
+@misc{pdbfixer,
+  author       = {{OpenMM Development Team}},
+  title        = {{PDBFixer}},
+  howpublished = {\url{https://github.com/openmm/pdbfixer}},
+  note         = {Structure repair (missing atoms/residues/termini, heterogen removal, H addition) in mdtutorial.repair. Part of the OpenMM ecosystem; no dedicated paper.}
+}

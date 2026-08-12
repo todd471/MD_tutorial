@@ -145,7 +145,34 @@ def _first_model_pdb(pdb_text):
     return "\n".join(out) + "\n"
 
 
-def dual_view(pdb_left, pdb_right, highlight_resi=6, width=780, height=420, animate=True, ghost=True):
+def _cv_frames_pdb(traj, cv_pairs, n_dots=13):
+    """Build a multi-frame PDB (one MODEL per frame) that renders each CV as an animated DOTTED line: for every
+    cv_pair, sample n_dots+2 points along the centroid->centroid segment as pseudo-atoms (endpoints tagged
+    resn CVE, the interior dots CVL). Added to a py3Dmol view as its OWN frame-model it animates in lockstep
+    with the trajectory. We draw the line AS dots rather than a bond because py3Dmol will NOT render a CONECT
+    stick across a multi-frame model (the endpoints show but the connector doesn't) -- and dots give the dashed
+    look for free. cv_pairs: list of (sel_a_mdtraj, sel_b_mdtraj, color_hex) -- same format as cv_groups_view."""
+    sels = [(traj.topology.select(a), traj.topology.select(b)) for a, b, _ in cv_pairs]
+    out = []
+    for f in range(traj.n_frames):
+        out.append(f"MODEL {f + 1:>8}")
+        serial = 1
+        for ia, ib in sels:
+            ca = traj.xyz[f, ia].mean(0) * 10.0                     # nm -> Å
+            cb = traj.xyz[f, ib].mean(0) * 10.0
+            for k in range(n_dots + 2):
+                t = k / (n_dots + 1)
+                p = ca * (1 - t) + cb * t
+                resn = "CVE" if k in (0, n_dots + 1) else "CVL"     # endpoints vs line dots
+                out.append(f"HETATM{serial:>5} {'X':<4} {resn} X{serial:>4}    "
+                           f"{p[0]:8.3f}{p[1]:8.3f}{p[2]:8.3f}  1.00  0.00           C")
+                serial += 1
+        out.append("ENDMDL")
+    return "\n".join(out) + "\n"
+
+
+def dual_view(pdb_left, pdb_right, highlight_resi=6, width=780, height=420, animate=True, ghost=True,
+              cv_pairs=None, cv_dots=7):
     """Two py3Dmol panels side by side. If the PDBs are multi-frame trajectories (e.g. from
     pull_screen.save_aligned, superposed so both start in the folded orientation) they ANIMATE -- watch the
     cage stay shut (left) vs crack open (right), Trp6 drawn as orange sticks so the opening is obvious. NO
@@ -170,6 +197,14 @@ def dual_view(pdb_left, pdb_right, highlight_resi=6, width=780, height=420, anim
             view.setStyle({"model": -1}, {"cartoon": {"color": "0xd9d9d9", "opacity": 0.55}}, viewer=(0, col))
             view.addStyle({"model": -1, "resi": str(highlight_resi)},
                           {"stick": {"color": "0xb0b0b0", "radius": 0.16, "opacity": 0.6}}, viewer=(0, col))
+        if cv_pairs:                                                                    # animated CV overlay
+            import mdtraj as _md
+            cvtext = _cv_frames_pdb(_md.load(path), cv_pairs, n_dots=cv_dots)
+            view.addModelsAsFrames(cvtext, "pdb", viewer=(0, col))
+            view.setStyle({"model": -1, "resn": "CVL"},                                  # dashed line = row of dots
+                          {"sphere": {"radius": 0.12, "color": "0x111111"}}, viewer=(0, col))
+            view.setStyle({"model": -1, "resn": "CVE"},                                  # the two centroid endpoints
+                          {"sphere": {"radius": 0.30, "color": "0x111111"}}, viewer=(0, col))
     view.zoomTo()
     if animate:
         view.animate({"loop": "forward", "interval": 100})
@@ -194,18 +229,33 @@ def overlay_view(pdb_a, pdb_b, highlight_resi=6, width=520, height=420):
     return view
 
 
-def cv_groups_view(pdb_path, groups, width=470, height=390):
-    """Show ONE folded structure (faint grey cartoon) with named residue selections drawn as colored sticks --
-    to point out WHERE a collective variable's atom groups sit on the molecule (e.g. the indole and the
-    poly-Pro lid whose distance is the CV, plus the salt-bridge pair). `groups` is a list of
-    (resi_selection_str, colorscheme), e.g. [('6', 'orangeCarbon'), ('17-19', 'blueCarbon')]. Caption the
-    colors in plain text above the cell (no in-viewer labels -- they obscure the sticks)."""
+def cv_groups_view(pdb_path, groups, cv_pairs=None, width=520, height=420):
+    """Show ONE folded structure (faint grey cartoon) with named residue selections as colored sticks -- WHERE
+    each collective variable's atom groups sit -- and, if `cv_pairs` is given, the CVs THEMSELVES as
+    centroid-to-centroid **dashed distances**: a dot at each group's center + a dashed line between them. That
+    makes 'the distance we push on' literal AND shows a reader the CV endpoints are *computed centers* (the
+    biasing force is spread over the whole group by mass), not single atoms. `groups` is a list of
+    (resi_selection, colorscheme), e.g. [('6', 'orangeCarbon'), ('17-19', 'blueCarbon')]. `cv_pairs` is a list
+    of (mdtraj_sel_a, mdtraj_sel_b, color_hex): each end is the centroid of that atom selection, e.g.
+    ('resSeq 6 and name CG CD1 ...', 'resSeq 17 18 19 and name CA', '0x333333'). Caption colors in text above."""
     import py3Dmol
     view = py3Dmol.view(width=width, height=height)
     view.addModel(open(pdb_path).read(), "pdb")
     view.setStyle({"cartoon": {"color": "0xdcdcdc"}})
     for resi, colorscheme in groups:
         view.addStyle({"resi": str(resi)}, {"stick": {"colorscheme": colorscheme, "radius": 0.22}})
+    if cv_pairs:
+        import mdtraj as md
+        t = md.load(pdb_path)
+        for sel_a, sel_b, color in cv_pairs:
+            ca = t.xyz[0, t.topology.select(sel_a)].mean(0) * 10.0     # group centroid, nm -> Å (PDB/py3Dmol units)
+            cb = t.xyz[0, t.topology.select(sel_b)].mean(0) * 10.0
+            for c in (ca, cb):
+                view.addSphere({"center": {"x": float(c[0]), "y": float(c[1]), "z": float(c[2])},
+                                "radius": 0.35, "color": color})
+            view.addLine({"start": {"x": float(ca[0]), "y": float(ca[1]), "z": float(ca[2])},
+                          "end":   {"x": float(cb[0]), "y": float(cb[1]), "z": float(cb[2])},
+                          "color": color, "dashed": True})
     view.zoomTo()
     return view
 
@@ -245,8 +295,9 @@ cmd.enable("after"); cmd.disable("before"); cmd.set_view(V); cmd.ray(700, 700); 
 
 
 def cartoon_panels(stage2_pdb, stage3_pdb, out_dir, pymol=None):
-    """The three build-stage panels: (1) repaired peptide (cartoon + translucent surface); (2) & (3) the
-    ALL-ATOM peptide (sticks, element-colored) + translucent grey surface inside the FULL periodic box --
+    """The three build-stage panels: (1) repaired peptide in SCHEME 7 (rainbow cartoon + ball-and-stick +
+    light translucent surface); (2) & (3) the
+    SAME scheme-7 rainbow rendering (rainbow cartoon + rainbow ball-and-stick) of the solvated peptide + translucent grey surface inside the FULL periodic box --
     panel 2 empty box, panel 3 filled with water + ion(s). Panels 2 & 3 share one camera, zoomed out so the
     whole box is in frame (shows how small the solute is relative to the solvent). Returns {name: png} for
     whichever rendered (empty dict if PyMOL absent)."""
@@ -265,7 +316,7 @@ cmd.set("ray_shadows", 0); cmd.set("antialias", 2); cmd.set("orthoscopic", 1); c
 cmd.set("transparency_mode", 1); cmd.set("surface_quality", 1)
 def spec(sel): cmd.spectrum("count", "rainbow", sel + " and name CA")   # N(blue)->C(red)
 def add_surface(sel):
-    cmd.show("surface", sel); cmd.set("transparency", 0.75, sel); cmd.set("surface_color", "grey70", sel)
+    cmd.show("surface", sel); cmd.set("transparency", 0.85, sel); cmd.set("surface_color", "grey70", sel)
 def box(mn, mx, name, color=(0, 0, 0), lw=2.5):
     x0, y0, z0 = mn; x1, y1, z1 = mx
     c = [(x0,y0,z0),(x1,y0,z0),(x1,y1,z0),(x0,y1,z0),(x0,y0,z1),(x1,y0,z1),(x1,y1,z1),(x0,y1,z1)]
@@ -273,15 +324,20 @@ def box(mn, mx, name, color=(0, 0, 0), lw=2.5):
     o = [LINEWIDTH, lw, BEGIN, LINES, COLOR, *color]
     for a, b in e: o += [VERTEX, *c[a], VERTEX, *c[b]]
     o += [END]; cmd.load_cgo(o, name)
-# Panel 1: cartoon + translucent surface; canonical orientation set once
-cmd.load({stage2_pdb!r}, "pep"); cmd.hide("everything"); cmd.show("cartoon", "pep"); spec("pep")
-add_surface("pep")
+# Panel 1: SCHEME 7 -- rainbow cartoon + ball-and-stick (all atoms) + light grey translucent surface (0.85)
+cmd.load({stage2_pdb!r}, "pep"); cmd.hide("everything")
+cmd.show("cartoon", "pep"); cmd.show("sticks", "pep"); cmd.set("stick_radius", 0.09, "pep")
+cmd.show("spheres", "pep"); cmd.set("sphere_scale", 0.2, "pep")
+cmd.spectrum("count", "rainbow", "pep")                       # everything rainbow (cartoon + atoms), N->C
+cmd.show("surface", "pep"); cmd.set("surface_color", "grey70", "pep"); cmd.set("transparency", 0.85, "pep")
 cmd.orient("pep"); cmd.turn("y", 20); cmd.turn("x", 20)
-cmd.zoom("pep", buffer=-1.5)
+cmd.zoom("pep", buffer=2.5, complete=1)   # +buffer + complete=1 so the whole translucent SURFACE fits in frame
 cmd.ray(W, W); cmd.png({out['panel1_repair']!r}, dpi=150)
 # Panels 2 & 3 share the SAME solvated system, box, and zoom -> identical molecule size
 cmd.load({stage3_pdb!r}, "sol"); cmd.hide("everything", "sol"); cmd.disable("pep")
-cmd.show("sticks", "sol and polymer"); cmd.util.cbaw("sol and polymer"); add_surface("sol and polymer")
+cmd.show("cartoon", "sol and polymer"); cmd.show("sticks", "sol and polymer"); cmd.set("stick_radius", 0.09, "sol and polymer")
+cmd.show("spheres", "sol and polymer"); cmd.set("sphere_scale", 0.2, "sol and polymer")
+cmd.spectrum("count", "rainbow", "sol and polymer"); add_surface("sol and polymer")   # SCHEME 7: rainbow ribbon + rainbow all-atom (matches panel 1)
 cmd.orient("sol and polymer"); cmd.turn("y", 20); cmd.turn("x", 20)
 es = cmd.get_extent("sol"); box(es[0], es[1], "cellbox", color=(0.2, 0.2, 0.2), lw=2.0)
 cmd.zoom("cellbox", buffer=6, complete=1); cmd.clip("slab", 300)
@@ -310,7 +366,7 @@ def _recenter_deg(A, center):
 
 def player(c, label="repeat 1"):
     """Synchronized molecule + collective-variable animation -- one play button, one timeline. `c` is a
-    compute_cvs() dict (needs t, ps, rmsd, gln5, asp9, p19). Backbone coloured N->C; the two alpha-helix
+    compute_cvs() dict (needs t, ps, rmsd, gln5, asp9, ile4). Backbone coloured N->C; the two alpha-helix
     H-bonds (GLN5 N-H..ASN1 O=C orange, ASP9 N-H..GLN5 O=C blue) are dashed lines that go faint-dotted when
     they break (>2.5 A); a shared cursor marks the current moment on every trace. Long runs are subsampled
     to <=200 embedded frames so the in-browser player fits in memory. Returns an IPython HTML to display."""
@@ -331,8 +387,8 @@ def player(c, label="repeat 1"):
     CA = x[:, ca, :]
     a = lambda resid, name: t.topology.select(f"resid {resid} and name {name}")[0]
     gH, gO, aH, aO = a(4, "H"), a(0, "O"), a(8, "H"), a(4, "O")   # index 4=GLN5, 0=ASN1, 8=ASP9 (canonical labels)
-    p19c = _recenter_deg(c["p19"], _circmean_deg(c["p19"]))
-    p19lo, p19hi = p19c.min() - 10, p19c.max() + 10
+    ile4c = _recenter_deg(c["ile4"], _circmean_deg(c["ile4"]))
+    ile4lo, ile4hi = ile4c.min() - 10, ile4c.max() + 10
     step = max(3, int(np.ceil(t.n_frames / 200)))             # cap embedded frames; subsample across the WHOLE run
     F = list(range(0, t.n_frames, step))
     if step > 3:
@@ -350,12 +406,12 @@ def player(c, label="repeat 1"):
     cols = plt.get_cmap("turbo")(np.linspace(0, 1, len(ca) - 1))
     hbG, = axM.plot([], [], [], ls="--", lw=2, color="darkorange")
     hbA, = axM.plot([], [], [], ls="--", lw=2, color="dodgerblue")
-    p19dot, = axM.plot([], [], [], "o", color="magenta", ms=8)
+    ile4dot, = axM.plot([], [], [], "o", color="magenta", ms=8)
     _hlo = min(c["gln5"].min(), c["asp9"].min()) - 0.3
     _hhi = max(c["gln5"].max(), c["asp9"].max()) + 0.3
     for ax, ttl, yl, ylim in [(axR, "Cα RMSD", "Å", (0, c["rmsd"].max() * 1.1)),
                               (axH, "backbone amide N–H···O=C", "Å", (_hlo, _hhi)),
-                              (axP, "PRO19 ψ (re-centered)", "deg", (p19lo, p19hi))]:
+                              (axP, "ILE4 χ1 (re-centered)", "deg", (ile4lo, ile4hi))]:
         ax.set(title=ttl, ylabel=yl, xlim=(0, ps[F[-1]])); ax.set_ylim(*ylim)
     axH.axhline(2.5, ls=":", c="k", lw=1, label="2.5 Å cutoff"); axP.set_xlabel("time (ps)")
     lR, = axR.plot([], [], color="navy"); lG, = axH.plot([], [], color="darkorange", label="GLN5···ASN1")
@@ -372,14 +428,14 @@ def player(c, label="repeat 1"):
             hb.set_alpha(1.0 if sat else 0.7); hb.set_linewidth(2.8 if sat else 2.0)
             if sat: hb.set_dashes([3, 2])
             else: hb.set_linestyle(":")
-        p19dot.set_data_3d([CA[f, 18, 0]], [CA[f, 18, 1]], [CA[f, 18, 2]])
+        ile4dot.set_data_3d([CA[f, 3, 0]], [CA[f, 3, 1]], [CA[f, 3, 2]])
         axM.view_init(elev=40, azim=-60)
         i = f + 1
         lR.set_data(ps[:i], c["rmsd"][:i]); lG.set_data(ps[:i], c["gln5"][:i])
-        lAx.set_data(ps[:i], c["asp9"][:i]); lP.set_data(ps[:i], p19c[:i])
+        lAx.set_data(ps[:i], c["asp9"][:i]); lP.set_data(ps[:i], ile4c[:i])
         for cur in cursors: cur.set_xdata([ps[f], ps[f]])
         figA.suptitle(f"{label} — t = {ps[f]} ps", fontsize=13)
-        return tube, hbG, hbA, p19dot, lR, lG, lAx, lP, *cursors
+        return tube, hbG, hbA, ile4dot, lR, lG, lAx, lP, *cursors
 
     anim = FuncAnimation(figA, upd, frames=len(F), interval=160, blit=False)
     plt.close(figA)
@@ -388,7 +444,7 @@ def player(c, label="repeat 1"):
 
 def filmstrip(traj, out_dir, fracs=(0.25, 0.5, 0.75, 1.0), pymol=None):
     """Ray-traced PyMOL filmstrip: cartoon snapshots at the given trajectory fractions, all aligned to
-    frame 0, with PRO19 highlighted in magenta sticks. Returns (png_paths, frame_indices); png_paths is
+    frame 0, with ILE4 highlighted in magenta sticks. Returns (png_paths, frame_indices); png_paths is
     empty if PyMOL is unavailable."""
     os.makedirs(out_dir, exist_ok=True)
     n = traj.n_frames
@@ -414,7 +470,7 @@ cmd.orient(objs[0]); cmd.turn("y", 20); cmd.turn("x", 20); VIEW = cmd.get_view()
 for o, png in zip(objs, PNGS):
     cmd.disable("all"); cmd.enable(o); cmd.show("cartoon", o)
     cmd.spectrum("count", "rainbow", o + " and name CA")
-    cmd.show("sticks", o + " and resi 19"); cmd.color("magenta", o + " and resi 19 and elem C")
+    cmd.show("sticks", o + " and resi 4"); cmd.color("magenta", o + " and resi 4 and elem C")
     cmd.set_view(VIEW); cmd.ray(W, W); cmd.png(png, dpi=150)
 """)
     if render_pymol(script, pymol):
@@ -472,3 +528,114 @@ def convergence_figure(series, dt_ps=1.0, out_png=None, label="observable"):
     if out_png:
         fig.savefig(out_png, dpi=130)
     return fig
+
+
+def cv_locator_map(pdb_path):
+    """§3.2 schematic LOCATOR (pairs with the py3Dmol 3D render of the same groups). A 2D PCA projection of
+    the Cα trace as a grey tube; the four observable groups colored and each tethered to its backbone Cα by a
+    color-coded bond; the biased CV (indole→poly-Pro) and the Asp9–Arg16 salt bridge drawn as dashed lines ON
+    the molecule; and four margin pictograms (biased CV, Trp6 SASA, salt bridge, global Cα-RMSD) connected to
+    their location by dotted leader lines. Pure matplotlib -> reproducible, shows inline."""
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import ConnectionPatch, Circle, Ellipse
+    import matplotlib.patheffects as pe
+    from scipy.interpolate import splprep, splev
+    import mdtraj as md
+
+    t = md.load(pdb_path); top = t.topology
+    ca = top.select("name CA"); X = t.xyz[0, ca] * 10
+    Xc = X - X.mean(0); _, _, Vt = np.linalg.svd(Xc, full_matrices=False)
+    P = Xc @ Vt[:2].T
+    cen = lambda q: (t.xyz[0, top.select(q)].mean(0) * 10 - X.mean(0)) @ Vt[:2].T
+    IND = cen("resSeq 6 and name CG CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2")
+    LID = cen("resSeq 17 18 19 and name CA")
+    ASP = cen("resSeq 9 and name OD1 OD2"); ARG = cen("resSeq 16 and name NH1 NH2 NE")
+    C_IND, C_LID, C_ASP, C_ARG = "#e8820c", "#2166ac", "#c0392b", "#27ae60"
+
+    fig = plt.figure(figsize=(10.5, 8.2))
+    ax = fig.add_axes([0.26, 0.10, 0.50, 0.82]); ax.set_aspect("equal"); ax.axis("off")
+    ax.set_xlim(-12.5, 10.5); ax.set_ylim(-8.5, 11.5)
+    (tck, _) = splprep([P[:, 0], P[:, 1]], s=0, k=3); uu = np.linspace(0, 1, 400)
+    bx, by = splev(uu, tck)
+    ax.plot(bx, by, color="0.82", lw=11, solid_capstyle="round", zorder=1)             # tube body
+    ax.plot(bx, by, color="0.5", lw=1.6, solid_capstyle="round", zorder=1.5)           # centerline
+    ecx, ecy = P.mean(0); ea = np.ptp(P[:, 0]) + 6; eb = np.ptp(P[:, 1]) + 6            # "whole molecule" (RMSD)
+    ax.add_patch(Ellipse((ecx, ecy), ea, eb, angle=0, fill=False, ls=(0, (4, 3)), lw=1.0, ec="0.75", zorder=0))
+    _th = np.radians(140)                                                               # upper-left arc, ~halfway N<->C
+    E_RMSD = (ecx + 0.5 * ea * np.cos(_th), ecy + 0.5 * eb * np.sin(_th))               # terminate the RMSD leader ON the arc
+    ax.plot([IND[0], LID[0]], [IND[1], LID[1]], color="k", lw=1.8, ls=(0, (5, 2)), zorder=4)     # biased CV
+    ax.plot([ASP[0], ARG[0]], [ASP[1], ARG[1]], color="0.2", lw=1.4, ls=(0, (2, 2)), zorder=4)   # salt bridge
+
+    def marker(xy, col, r=0.95, lab=None, dx=0.0, dy=0.0, anchor=None):
+        if anchor is not None:                                                          # side-chain group -> backbone Cα
+            ax.plot([anchor[0], xy[0]], [anchor[1], xy[1]], color=col, lw=2.6, solid_capstyle="round", zorder=4.5)
+            ax.add_patch(Circle(anchor, 0.34, fc=col, ec="white", lw=0.7, zorder=4.6))
+        ax.add_patch(Circle(xy, r, fc=col, ec="white", lw=1.5, zorder=5))
+        if lab:
+            ax.annotate(lab, xy, xytext=(xy[0] + dx, xy[1] + dy), fontsize=8.5, weight="bold", color=col,
+                        ha="center", va="center", path_effects=[pe.withStroke(linewidth=2.4, foreground="white")], zorder=6)
+    marker(IND, C_IND, r=1.15, lab="Trp6", dx=-2.0, dy=-0.2, anchor=P[5])
+    marker(LID, C_LID, r=1.05, lab="Pro17–19\nlid", dx=0.0, dy=2.3, anchor=P[17])       # attaches at Pro18 Cα (the stacker)
+    marker(ASP, C_ASP, r=0.8, lab="Asp9", dx=-1.8, dy=-0.9, anchor=P[8])
+    marker(ARG, C_ARG, r=0.8, lab="Arg16", dx=2.0, dy=0.4, anchor=P[15])
+    ax.annotate("N", P[0], xytext=(P[0, 0] - 1.6, P[0, 1] - 0.4), fontsize=9, color="0.4", ha="center", va="center")
+    ax.annotate("C", P[-1], xytext=(P[-1, 0] - 1.4, P[-1, 1] + 0.6), fontsize=9, color="0.4", ha="center", va="center")
+
+    def picto_ax(rect):
+        a = fig.add_axes(rect); a.set_xlim(0, 1); a.set_ylim(0, 1); a.axis("off"); return a
+
+    def ptitle(a, s, col): a.text(0.5, -0.16, s, transform=a.transAxes, ha="center", va="top", fontsize=8, color=col, weight="bold")
+
+    def water(a, cx, cy, s=1.0, rot=0.0):                                               # 3-atom water: red O + 2 white H
+        ro, rh, d = 0.030 * s, 0.018 * s, 0.056 * s
+        for sign in (-1, 1):
+            ang = rot + sign * np.radians(52.25)
+            hx, hy = cx + d * np.cos(ang), cy + d * np.sin(ang)
+            a.plot([cx, hx], [cy, hy], color="0.55", lw=1.0, zorder=1, solid_capstyle="round")
+            a.add_patch(Circle((hx, hy), rh, fc="white", ec="0.55", lw=0.7, zorder=2))
+        a.add_patch(Circle((cx, cy), ro, fc="#d43a2f", ec="white", lw=0.5, zorder=3))
+
+    a1 = picto_ax([0.775, 0.60, 0.205, 0.26])                                           # biased CV
+    a1.add_patch(Circle((0.22, 0.55), 0.11, fc=C_IND, ec="white", lw=1.2))
+    a1.add_patch(Circle((0.80, 0.55), 0.10, fc=C_LID, ec="white", lw=1.2))
+    _sx = np.linspace(0.33, 0.69, 60); _sy = 0.55 + 0.06 * np.sin((_sx - 0.33) * 46)
+    a1.plot(_sx, _sy, color="0.3", lw=1.4)
+    a1.annotate("", (0.95, 0.55), (0.80, 0.55), arrowprops=dict(arrowstyle="->", color="firebrick", lw=1.6))
+    a1.text(0.5, 0.90, "we ramp r₀ outward", ha="center", fontsize=6.8, color="firebrick", style="italic")
+    ptitle(a1, "biased CV\nindole→poly-Pro", "k")
+
+    a2 = picto_ax([0.775, 0.10, 0.205, 0.24])                                           # salt bridge
+    a2.add_patch(Circle((0.26, 0.55), 0.13, fc=C_ASP, ec="white", lw=1.2))
+    a2.add_patch(Circle((0.74, 0.55), 0.13, fc=C_ARG, ec="white", lw=1.2))
+    a2.text(0.26, 0.55, "–", ha="center", va="center", fontsize=15, color="white", weight="bold")
+    a2.text(0.74, 0.55, "+", ha="center", va="center", fontsize=13, color="white", weight="bold")
+    a2.plot([0.39, 0.61], [0.55, 0.55], color="0.3", lw=1.3, ls=(0, (2, 2)))
+    ptitle(a2, "referee: Asp9–Arg16\nsalt bridge", "0.25")
+
+    a3 = picto_ax([0.02, 0.10, 0.19, 0.24])                                             # Trp6 SASA
+    a3.add_patch(Circle((0.5, 0.52), 0.16, fc=C_IND, ec="white", lw=1.2))
+    a3.add_patch(Circle((0.5, 0.52), 0.30, fill=False, ec="0.45", lw=1.1, ls=(0, (3, 2))))
+    for _i, _a in enumerate(np.linspace(0, 2 * np.pi, 6, endpoint=False)):
+        water(a3, 0.5 + 0.40 * np.cos(_a), 0.52 + 0.40 * np.sin(_a), s=0.95, rot=_a + 0.9 * _i)
+    ptitle(a3, "referee: Trp6 SASA\n(cage exposure)", C_IND)
+
+    a4 = picto_ax([0.02, 0.60, 0.19, 0.24])                                             # global Cα-RMSD
+    _zx = np.linspace(0.12, 0.88, 7); _zy = 0.5 + 0.13 * np.array([0, 1, -1, 1, -1, 1, 0])
+    a4.plot(_zx, _zy + 0.06, color="0.7", lw=2.0, solid_capstyle="round")
+    a4.plot(_zx, _zy - 0.06, color="0.2", lw=2.0, solid_capstyle="round")
+    a4.annotate("", (0.5, 0.5 + 0.13 - 0.06), (0.5, 0.5 + 0.13 + 0.06), arrowprops=dict(arrowstyle="<->", color="firebrick", lw=1.2))
+    ptitle(a4, "referee: global\nCα-RMSD", "0.3")
+
+    def leader(a, xyA, xyB, col="0.5"):
+        fig.add_artist(ConnectionPatch(xyA=xyA, coordsA=a.transAxes, xyB=xyB, coordsB=ax.transData,
+                                       ls=(0, (1, 2)), lw=1.1, color=col, zorder=3))
+    leader(a1, (0.05, 0.45), (0.5 * (IND[0] + LID[0]) + 0.4, 0.5 * (IND[1] + LID[1])), "k")
+    leader(a2, (0.10, 0.75), (0.5 * (ASP[0] + ARG[0]), 0.5 * (ASP[1] + ARG[1])), "0.4")
+    leader(a3, (0.85, 0.75), (IND[0] - 0.6, IND[1]), C_IND)
+    leader(a4, (0.88, 0.40), E_RMSD, "0.4")                                             # -> lands ON the ellipse arc
+
+    fig.suptitle("Where we push, and what watches — one biased coordinate, three independent referees",
+                 y=0.975, fontsize=11.5)
+    plt.close(fig)          # drop from pyplot's registry so inline doesn't auto-show a 2nd copy;
+    return fig              # the notebook displays the returned Figure exactly once (script savefig()s it)

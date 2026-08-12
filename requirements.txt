@@ -1,0 +1,19 @@
+# requirements.txt -- pip install path, for Colab or environments without conda.
+#
+#   pip install -r requirements.txt
+#
+# On HPC/local, PREFER environment.yml -- pip's resolver conflicts on openmm+pdbfixer. Listing openmm>=8.2
+# explicitly here pre-satisfies pdbfixer's pin, which avoids the clash on Python >= 3.11 (Colab is fine).
+# The notebooks' Cell 0 already does a guarded version of this install, so you usually don't run this by hand.
+openmm>=8.2
+pdbfixer>=1.11
+mdtraj
+numpy
+scipy
+matplotlib
+py3Dmol
+pymbar            # MBAR free-energy reweighting (PMFs + uncertainties) for the enhanced-sampling notebook
+#
+# PyMOL is intentionally omitted: pip has no working headless PyMOL. The figure panels are optional and
+# skip gracefully without it. To enable them: conda-forge `pymol-open-source` (local/HPC), or on Colab the
+# notebook's Cell 0 auto-provisions it via micromamba.
