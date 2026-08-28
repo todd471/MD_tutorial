@@ -124,7 +124,8 @@ def run(pdb, temp_k, seed, prod_ps, equil_ps=20,
     prot = md.Topology.from_openmm(m.topology).select("protein")
     ptop = md.Topology.from_openmm(m.topology).subset(prot)
     tmass = sum(system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(system.getNumParticles()))
-    ndof = 3 * system.getNumParticles() - system.getNumConstraints() - 3   # -3: COM motion removed (for temperature)
+    _nmv = sum(1 for i in range(system.getNumParticles()) if system.getParticleMass(i).value_in_unit(unit.dalton) == 0)
+    ndof = 3 * (system.getNumParticles() - _nmv) - system.getNumConstraints() - 3   # -3 COM; subtract MASSLESS virtual sites (4-site waters e.g. OPC) or T reads ~33% low
     _kB = 0.00831446261815324                                              # kJ/mol/K
     xyz = np.empty((prod_ps, len(prot), 3)); vol = np.empty(prod_ps); etot = np.empty(prod_ps)
     pe = np.empty(prod_ps); temp = np.empty(prod_ps)                       # thermodynamic vital signs (respond to the levers)

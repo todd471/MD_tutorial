@@ -229,21 +229,30 @@ def overlay_view(pdb_a, pdb_b, highlight_resi=6, width=520, height=420):
     return view
 
 
+def turbo_hex(resi, nres=20):
+    """py3Dmol/PyMOL hex ('0xRRGGBB') for a residue's turbo N->C position -- the SAME convention the paper
+    pictograms use (resi 1 = deep purple ... resi nres = red), so notebook residue highlights match the figures."""
+    from matplotlib import colormaps
+    r, g, b, _ = colormaps["turbo"]((resi - 1) / (nres - 1))
+    return "0x{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+
+
 def cv_groups_view(pdb_path, groups, cv_pairs=None, width=520, height=420):
     """Show ONE folded structure (faint grey cartoon) with named residue selections as colored sticks -- WHERE
     each collective variable's atom groups sit -- and, if `cv_pairs` is given, the CVs THEMSELVES as
     centroid-to-centroid **dashed distances**: a dot at each group's center + a dashed line between them. That
     makes 'the distance we push on' literal AND shows a reader the CV endpoints are *computed centers* (the
     biasing force is spread over the whole group by mass), not single atoms. `groups` is a list of
-    (resi_selection, colorscheme), e.g. [('6', 'orangeCarbon'), ('17-19', 'blueCarbon')]. `cv_pairs` is a list
+    (resi_selection, color_hex), e.g. [('9', turbo_hex(9)), ('16', turbo_hex(16))] -- solid turbo-by-residue so
+    the sticks match the paper pictograms. `cv_pairs` is a list
     of (mdtraj_sel_a, mdtraj_sel_b, color_hex): each end is the centroid of that atom selection, e.g.
     ('resSeq 6 and name CG CD1 ...', 'resSeq 17 18 19 and name CA', '0x333333'). Caption colors in text above."""
     import py3Dmol
     view = py3Dmol.view(width=width, height=height)
     view.addModel(open(pdb_path).read(), "pdb")
     view.setStyle({"cartoon": {"color": "0xdcdcdc"}})
-    for resi, colorscheme in groups:
-        view.addStyle({"resi": str(resi)}, {"stick": {"colorscheme": colorscheme, "radius": 0.22}})
+    for resi, color in groups:
+        view.addStyle({"resi": str(resi)}, {"stick": {"color": color, "radius": 0.22}})
     if cv_pairs:
         import mdtraj as md
         t = md.load(pdb_path)
@@ -294,7 +303,7 @@ cmd.enable("after"); cmd.disable("before"); cmd.set_view(V); cmd.ray(700, 700); 
     return None, None
 
 
-def cartoon_panels(stage2_pdb, stage3_pdb, out_dir, pymol=None):
+def cartoon_panels(stage2_pdb, stage3_pdb, out_dir, pymol=None, ray_px=1000):
     """The three build-stage panels: (1) repaired peptide in SCHEME 7 (rainbow cartoon + ball-and-stick +
     light translucent surface); (2) & (3) the
     SAME scheme-7 rainbow rendering (rainbow cartoon + rainbow ball-and-stick) of the solvated peptide + translucent grey surface inside the FULL periodic box --
@@ -306,15 +315,20 @@ def cartoon_panels(stage2_pdb, stage3_pdb, out_dir, pymol=None):
            "panel2_box": os.path.join(out_dir, "panel2_box.png"),
            "panel3_solvated": os.path.join(out_dir, "panel3_solvated.png")}
     script = os.path.join(out_dir, "_cartoons.py")
+    from matplotlib import colormaps as _cmaps                      # turbo N->C palette (matches Fig 3); computed here, injected as literals
+    _tb = _cmaps["turbo"]
+    _pal = "\n".join('cmd.set_color("t{}", [{:.3f}, {:.3f}, {:.3f}])'.format(i, *_tb((i - 1) / 19.0)[:3]) for i in range(1, 21))
     with open(script, "w") as fh:
         fh.write(f"""from pymol import cmd
 from pymol.cgo import LINEWIDTH, BEGIN, LINES, COLOR, VERTEX, END
-W = 1000
+W = {ray_px}
 cmd.bg_color("white"); cmd.set("ray_opaque_background", 0)
 cmd.set("cartoon_fancy_helices", 1); cmd.set("cartoon_highlight_color", "grey50")
 cmd.set("ray_shadows", 0); cmd.set("antialias", 2); cmd.set("orthoscopic", 1); cmd.set("stick_radius", 0.14)
 cmd.set("transparency_mode", 1); cmd.set("surface_quality", 1)
-def spec(sel): cmd.spectrum("count", "rainbow", sel + " and name CA")   # N(blue)->C(red)
+{_pal}
+def spec(sel):
+    for _i in range(1, 21): cmd.color("t%d" % _i, "(" + sel + ") and resi %d" % _i)   # turbo N->C per residue (matches Fig 3)
 def add_surface(sel):
     cmd.show("surface", sel); cmd.set("transparency", 0.85, sel); cmd.set("surface_color", "grey70", sel)
 def box(mn, mx, name, color=(0, 0, 0), lw=2.5):
@@ -328,7 +342,7 @@ def box(mn, mx, name, color=(0, 0, 0), lw=2.5):
 cmd.load({stage2_pdb!r}, "pep"); cmd.hide("everything")
 cmd.show("cartoon", "pep"); cmd.show("sticks", "pep"); cmd.set("stick_radius", 0.09, "pep")
 cmd.show("spheres", "pep"); cmd.set("sphere_scale", 0.2, "pep")
-cmd.spectrum("count", "rainbow", "pep")                       # everything rainbow (cartoon + atoms), N->C
+spec("pep")                                                   # turbo per residue (cartoon + atoms), N->C -- matches Fig 3
 cmd.show("surface", "pep"); cmd.set("surface_color", "grey70", "pep"); cmd.set("transparency", 0.85, "pep")
 cmd.orient("pep"); cmd.turn("y", 20); cmd.turn("x", 20)
 cmd.zoom("pep", buffer=2.5, complete=1)   # +buffer + complete=1 so the whole translucent SURFACE fits in frame
@@ -337,10 +351,10 @@ cmd.ray(W, W); cmd.png({out['panel1_repair']!r}, dpi=150)
 cmd.load({stage3_pdb!r}, "sol"); cmd.hide("everything", "sol"); cmd.disable("pep")
 cmd.show("cartoon", "sol and polymer"); cmd.show("sticks", "sol and polymer"); cmd.set("stick_radius", 0.09, "sol and polymer")
 cmd.show("spheres", "sol and polymer"); cmd.set("sphere_scale", 0.2, "sol and polymer")
-cmd.spectrum("count", "rainbow", "sol and polymer"); add_surface("sol and polymer")   # SCHEME 7: rainbow ribbon + rainbow all-atom (matches panel 1)
+spec("sol and polymer"); add_surface("sol and polymer")      # turbo ribbon + all-atom (matches panel 1 / Fig 3)
 cmd.orient("sol and polymer"); cmd.turn("y", 20); cmd.turn("x", 20)
 es = cmd.get_extent("sol"); box(es[0], es[1], "cellbox", color=(0.2, 0.2, 0.2), lw=2.0)
-cmd.zoom("cellbox", buffer=6, complete=1); cmd.clip("slab", 300)
+cmd.zoom("cellbox", buffer=1.5, complete=1); cmd.clip("slab", 300)   # tight to the box (fills the frame; panel 1 stays the close-up)
 cmd.ray(W, W); cmd.png({out['panel2_box']!r}, dpi=150)
 # Panel 3: reveal water + ion (identical view)
 cmd.show("spheres", "sol and resn HOH+WAT and name O")
@@ -453,23 +467,29 @@ def filmstrip(traj, out_dir, fracs=(0.25, 0.5, 0.75, 1.0), pymol=None):
     pngs = [os.path.join(out_dir, f"fs_render_{j}.png") for j in range(len(frames))]
     for p, fr in zip(pdbs, frames):
         traj[fr].save_pdb(p)
+    from matplotlib import colormaps as _cmaps                      # turbo N->C palette (matches Fig 2/3 + the trajectory player)
+    _tb = _cmaps["turbo"]
+    _pal = "\n".join('cmd.set_color("t{}", [{:.3f}, {:.3f}, {:.3f}])'.format(i, *_tb((i - 1) / 19.0)[:3]) for i in range(1, 21))
     script = os.path.join(out_dir, "_filmstrip.py")
     with open(script, "w") as fh:
         fh.write(f"""from pymol import cmd
 W = 800
 cmd.bg_color("white"); cmd.set("ray_opaque_background", 0)
 cmd.set("cartoon_fancy_helices", 1); cmd.set("ray_shadows", 0); cmd.set("antialias", 2); cmd.set("orthoscopic", 1)
+{_pal}
+def spec(sel):
+    for _i in range(1, 21): cmd.color("t%d" % _i, "(" + sel + ") and resi %d" % _i)   # turbo N->C per residue
 PDBS = {pdbs!r}
 PNGS = {pngs!r}
 objs = [f"f{{j}}" for j in range(len(PDBS))]
 for o, p in zip(objs, PDBS): cmd.load(p, o)
 cmd.hide("everything")
 for o in objs[1:]: cmd.align(o, objs[0])
-cmd.show("cartoon", objs[0]); cmd.spectrum("count", "rainbow", objs[0] + " and name CA")
+cmd.show("cartoon", objs[0]); spec(objs[0])
 cmd.orient(objs[0]); cmd.turn("y", 20); cmd.turn("x", 20); VIEW = cmd.get_view()
 for o, png in zip(objs, PNGS):
     cmd.disable("all"); cmd.enable(o); cmd.show("cartoon", o)
-    cmd.spectrum("count", "rainbow", o + " and name CA")
+    spec(o)
     cmd.show("sticks", o + " and resi 4"); cmd.color("magenta", o + " and resi 4 and elem C")
     cmd.set_view(VIEW); cmd.ray(W, W); cmd.png(png, dpi=150)
 """)
@@ -482,6 +502,37 @@ def sqcrop(img):
     """Center-crop an image array to a square (for tidy figure panels)."""
     h, w = img.shape[:2]; s = min(h, w); y0 = (h - s) // 2; x0 = (w - s) // 2
     return img[y0:y0 + s, x0:x0 + s]
+
+
+def seed_forest(stats, labels, unit="Å", label="Rg", out_png=None):
+    """Forest plot of the per-seed mean +/- tau-based SEM (the dicts trust_report returns) -- the independent-
+    seed convergence cross-check made visual: do the seeds agree within their error bars, and HOW close? A
+    grand-mean line with a +/- typical-SEM agreement band; any seed whose bar clears the band is flagged red
+    (its |mean - grand mean| exceeds its own SEM plus the typical SEM). The one-glance companion to the
+    printed per-seed table -- same numbers, same CONVERGED/UNDERSAMPLED verdict, read at a glance. Returns
+    the figure (saves to out_png if given)."""
+    import numpy as np
+    import matplotlib.pyplot as plt
+    means = np.array([s["mean"] for s in stats]); sems = np.array([s["sem"] for s in stats])
+    gm = float(means.mean()); tsem = float(sems.mean()); spread = float(np.ptp(means))
+    clears = np.abs(means - gm) > sems + tsem                # bar doesn't reach the agreement band -> disagrees
+    conv = spread < 2 * tsem
+    y = np.arange(len(means))[::-1]                          # first seed at the top
+    fig, ax = plt.subplots(figsize=(6.6, 0.5 * len(means) + 1.6), facecolor="white")
+    ax.axvspan(gm - tsem, gm + tsem, color="0.85", zorder=0, label="grand mean ± typical SEM")
+    ax.axvline(gm, color="0.4", lw=1.2, zorder=1)
+    for yi, m, se, bad in zip(y, means, sems, clears):
+        col = "firebrick" if bad else "steelblue"
+        ax.errorbar(m, yi, xerr=se, fmt="o", ms=6, color=col, ecolor=col, capsize=3, lw=1.6, zorder=3)
+    ax.set_yticks(y); ax.set_yticklabels(labels, fontsize=8); ax.set_ylim(-0.6, len(means) - 0.4)
+    ax.set_xlabel(f"{label}  ({unit})")
+    _v = "CONVERGED — seeds agree within their bars" if conv else "UNDERSAMPLED — spread exceeds the bars"
+    ax.set_title(f"per-seed {label}: spread {spread:.3f} {unit}  vs  2·SEM {2 * tsem:.3f} {unit}\n{_v}", fontsize=9)
+    ax.legend(fontsize=7, loc="best")
+    plt.tight_layout()
+    if out_png:
+        plt.savefig(out_png, dpi=150)
+    return fig
 
 
 def convergence_figure(series, dt_ps=1.0, out_png=None, label="observable"):
@@ -497,13 +548,20 @@ def convergence_figure(series, dt_ps=1.0, out_png=None, label="observable"):
     y = np.asarray(series, float); N = len(y)
     br, sr, er = mdt.block_curve(y)
     tau = mdt.integrated_autocorr_time(y); floor = y.std(ddof=1) / np.sqrt(N / (2 * tau))
-    rng = np.random.default_rng(0)                       # idealized: short-tau AR(1) with MANY samples -> plateaus
-    xi = np.empty(6000); xi[0] = rng.standard_normal()
-    for i in range(1, 6000):
-        xi[i] = 0.8 * xi[i - 1] + np.sqrt(1 - 0.64) * rng.standard_normal()
-    ti = mdt.integrated_autocorr_time(xi)
-    xi *= floor / (xi.std(ddof=1) / np.sqrt(len(xi) / (2 * ti)))   # scale so its plateau matches the real SEM range
+    # idealized reference = the SAME correlation time as the real series (τ matched), but WELL-SAMPLED, so both
+    # panels start at the IDENTICAL naïve σ/√N floor and climb the same √(2τ) -- only the synthetic has the frames
+    # to finish the climb and plateau. (A short-τ toy would start ~√(τ_real/τ_toy)× too high; that was the offset.)
+    rng = np.random.default_rng(0)
+    _phi = min((tau - 0.5) / (tau + 0.5), 0.999)         # AR(1) coeff giving τ_int = tau  (½ + φ/(1−φ)); clamp shy of 1
+    _NI = 200000                                          # many frames so the plateau stays smooth well past the real's range
+    _eps = rng.standard_normal(_NI); _cc = np.sqrt(1 - _phi ** 2)
+    xi = np.empty(_NI); xi[0] = _eps[0]
+    for i in range(1, _NI):
+        xi[i] = _phi * xi[i - 1] + _cc * _eps[i]
+    ti = tau                                             # matched by construction (analytic; skips a slow N=200000 τ estimate)
+    xi *= floor / (xi.std(ddof=1) / np.sqrt(len(xi) / (2 * ti)))   # pin its plateau to the real τ-SEM (the shared red line)
     bi, si, _ = mdt.block_curve(xi)
+    _cap = bi <= _NI // 25; bi, si = bi[_cap], si[_cap]   # run a bit past the real's range (this is what makes log-x the right call) but stay smooth (≥25 blocks)
     naive_i = xi.std(ddof=1) / np.sqrt(len(xi))
     plateau_i = xi.std(ddof=1) / np.sqrt(len(xi) / (2 * ti))
     BOX = dict(boxstyle="round", fc="white", ec="0.6", alpha=0.95)
@@ -512,11 +570,12 @@ def convergence_figure(series, dt_ps=1.0, out_png=None, label="observable"):
     ax[0].semilogx(bi, si, "o-", color="navy", ms=3)
     ax[0].axhline(naive_i, ls="--", color="0.55", lw=1); ax[0].axhline(plateau_i, ls="--", color="firebrick", lw=1)
     ax[0].text(bi[-1], naive_i, "naïve σ/√N\n(independent-frames floor)", va="center", ha="right", fontsize=8, color="0.4", bbox=BOX)
-    ax[0].text(bi[0], plateau_i, "honest SEM\n(the plateau)", va="center", ha="left", fontsize=8.5, color="firebrick", bbox=BOX)
+    ax[0].text(bi[0], plateau_i, "honest SEM\n(asymptotic plateau)", va="center", ha="left", fontsize=8.5, color="firebrick", bbox=BOX)
     ax[0].set(title="Well-sampled reference: SEM plateaus", xlabel="block size (frames)",
               ylabel="standard error of the mean (Å)"); ax[0].set_ylim(*YL)
     naive_r = y.std(ddof=1) / np.sqrt(N)                  # what a SHUFFLED (independent-frames) run would give
     ax[1].errorbar(br, sr, yerr=er, fmt="o-", color="darkorange", ms=3, lw=1, capsize=2, ecolor="0.6")
+    ax[1].set_xscale("log")                              # match the left panel's log x (block sizes are geometric; linear crushes the climb/plateau)
     ax[1].axhline(floor, ls="--", color="firebrick", lw=1); ax[1].axhline(naive_r, ls="--", color="0.55", lw=1)
     ax[1].text(br[0], floor, "τ-based SEM (the floor)\nσ·√(2τ/N)", va="center", ha="left", fontsize=8.5, color="firebrick", bbox=BOX)
     ax[1].text(br[-1], naive_r, "naïve σ/√N — the independent-frames\n(shuffled) floor; the climb above it is √(2τ)",
@@ -551,7 +610,12 @@ def cv_locator_map(pdb_path):
     IND = cen("resSeq 6 and name CG CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2")
     LID = cen("resSeq 17 18 19 and name CA")
     ASP = cen("resSeq 9 and name OD1 OD2"); ARG = cen("resSeq 16 and name NH1 NH2 NE")
-    C_IND, C_LID, C_ASP, C_ARG = "#e8820c", "#2166ac", "#c0392b", "#27ae60"
+    _tb = plt.get_cmap("turbo")                                     # turbo N->C per residue, matching the paper pictograms
+    C_IND, C_LID, C_ASP, C_ARG = _tb(5 / 19), _tb(17 / 19), _tb(8 / 19), _tb(15 / 19)   # Trp6 cyan, lid red, Asp9 green, Arg16 orange
+    def legible(c, target=0.5):                                     # darken bright turbo hues (cyan/green) so colored TEXT stays readable on white
+        import matplotlib.colors as _mc
+        r, g, b = _mc.to_rgb(c); lum = 0.299 * r + 0.587 * g + 0.114 * b
+        return (r, g, b) if lum <= target else (r * target / lum, g * target / lum, b * target / lum)
 
     fig = plt.figure(figsize=(10.5, 8.2))
     ax = fig.add_axes([0.26, 0.10, 0.50, 0.82]); ax.set_aspect("equal"); ax.axis("off")
@@ -573,7 +637,7 @@ def cv_locator_map(pdb_path):
             ax.add_patch(Circle(anchor, 0.34, fc=col, ec="white", lw=0.7, zorder=4.6))
         ax.add_patch(Circle(xy, r, fc=col, ec="white", lw=1.5, zorder=5))
         if lab:
-            ax.annotate(lab, xy, xytext=(xy[0] + dx, xy[1] + dy), fontsize=8.5, weight="bold", color=col,
+            ax.annotate(lab, xy, xytext=(xy[0] + dx, xy[1] + dy), fontsize=8.5, weight="bold", color=legible(col),
                         ha="center", va="center", path_effects=[pe.withStroke(linewidth=2.4, foreground="white")], zorder=6)
     marker(IND, C_IND, r=1.15, lab="Trp6", dx=-2.0, dy=-0.2, anchor=P[5])
     marker(LID, C_LID, r=1.05, lab="Pro17–19\nlid", dx=0.0, dy=2.3, anchor=P[17])       # attaches at Pro18 Cα (the stacker)
@@ -601,8 +665,8 @@ def cv_locator_map(pdb_path):
     a1.add_patch(Circle((0.80, 0.55), 0.10, fc=C_LID, ec="white", lw=1.2))
     _sx = np.linspace(0.33, 0.69, 60); _sy = 0.55 + 0.06 * np.sin((_sx - 0.33) * 46)
     a1.plot(_sx, _sy, color="0.3", lw=1.4)
-    a1.annotate("", (0.95, 0.55), (0.80, 0.55), arrowprops=dict(arrowstyle="->", color="firebrick", lw=1.6))
-    a1.text(0.5, 0.90, "we ramp r₀ outward", ha="center", fontsize=6.8, color="firebrick", style="italic")
+    a1.annotate("", (0.95, 0.55), (0.80, 0.55), arrowprops=dict(arrowstyle="->", color="black", lw=1.6))
+    a1.text(0.5, 0.90, "we ramp r₀ outward", ha="center", fontsize=6.8, color="black", style="italic")   # black = biased-CV theme (was firebrick, now clashes with the red lid)
     ptitle(a1, "biased CV\nindole→poly-Pro", "k")
 
     a2 = picto_ax([0.775, 0.10, 0.205, 0.24])                                           # salt bridge
@@ -618,13 +682,15 @@ def cv_locator_map(pdb_path):
     a3.add_patch(Circle((0.5, 0.52), 0.30, fill=False, ec="0.45", lw=1.1, ls=(0, (3, 2))))
     for _i, _a in enumerate(np.linspace(0, 2 * np.pi, 6, endpoint=False)):
         water(a3, 0.5 + 0.40 * np.cos(_a), 0.52 + 0.40 * np.sin(_a), s=0.95, rot=_a + 0.9 * _i)
-    ptitle(a3, "referee: Trp6 SASA\n(cage exposure)", C_IND)
+    ptitle(a3, "referee: Trp6 SASA\n(cage exposure)", legible(C_IND))
 
     a4 = picto_ax([0.02, 0.60, 0.19, 0.24])                                             # global Cα-RMSD
     _zx = np.linspace(0.12, 0.88, 7); _zy = 0.5 + 0.13 * np.array([0, 1, -1, 1, -1, 1, 0])
     a4.plot(_zx, _zy + 0.06, color="0.7", lw=2.0, solid_capstyle="round")
     a4.plot(_zx, _zy - 0.06, color="0.2", lw=2.0, solid_capstyle="round")
-    a4.annotate("", (0.5, 0.5 + 0.13 - 0.06), (0.5, 0.5 + 0.13 + 0.06), arrowprops=dict(arrowstyle="<->", color="firebrick", lw=1.2))
+    for _i in (1, 3, 5):                                                                 # deviation sampled at several sites along the chain -> reads "global"
+        a4.annotate("", (_zx[_i], _zy[_i] - 0.06), (_zx[_i], _zy[_i] + 0.06),
+                    arrowprops=dict(arrowstyle="<->", color="#7d3ac1", lw=1.2))          # purple = Fig 4 Cα-RMSD color
     ptitle(a4, "referee: global\nCα-RMSD", "0.3")
 
     def leader(a, xyA, xyB, col="0.5"):

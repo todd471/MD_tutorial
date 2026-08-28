@@ -409,7 +409,7 @@ def compute_cvs(dcd, top):
     alpha-helix backbone H-bond distances (GLN5 N-H..ASN1 O=C, ASP9 N-H..GLN5 O=C; donor i to carbonyl
     i-4), the **ASP9-ARG16 salt bridge** (min carboxylate-guanidinium distance; the canonical Trp-cage
     stabilizer, slow), and two dihedrals -- **ILE4 chi1** (side-chain rotamer; mostly parked in g-, rare
-    discrete hops to t/g+, strongly run-dependent) and **SER13 psi** (backbone; 3-10 helix; fast,
+    discrete hops to t/g+, strongly run-dependent) and **SER13 psi** (backbone dihedral; fast,
     multi-scale). Labels canonical (PDB 1-20); mdtraj `resid`/index is 0-based (index 3 = ILE4,
     4 = GLN5, 8 = ASP9, 12 = SER13, 15 = ARG16)."""
     full = md.load(dcd, top=top)
@@ -417,14 +417,14 @@ def compute_cvs(dcd, top):
         raise RuntimeError(f"{dcd} read back with 0 frames -- the trajectory was not yet durable on disk "
                            "(shared-filesystem lag) or was overwritten by a concurrent run. Re-run this "
                            "step; if it recurs, give each notebook its own working directory.")
-    t = full.atom_slice(full.topology.select("protein")); t.superpose(t, 0)
+    t = full.atom_slice(full.topology.select("protein")); t.superpose(t, 0)   # aligns the RETURNED trajectory to frame 0 for viewing only; every CV below is fit-invariant (distances/dihedrals/centroids) and md.rmsd re-optimizes its own Cα alignment, so this superpose changes NO reported number
     x = t.xyz * 10
     a = lambda resid, name: t.topology.select(f"resid {resid} and name {name}")[0]
     dist = lambda i, j: np.linalg.norm(x[:, i] - x[:, j], axis=1)
     pidx, psi = md.compute_psi(t)
     _psi = lambda ridx: next(np.degrees(psi[:, k]) for k, idx in enumerate(pidx)
                              if t.topology.atom(idx[1]).residue.index == ridx)   # 0-based resid
-    ser13 = _psi(12)                                          # SER13 psi (3-10 helix, fast jitter)
+    ser13 = _psi(12)                                          # SER13 psi (backbone dihedral, fast jitter)
     cidx, chi = md.compute_chi1(t)                            # side-chain chi1; atoms N-CA-CB-CG*, idx[0]=N
     _chi1 = lambda ridx: next(np.degrees(chi[:, k]) for k, idx in enumerate(cidx)
                               if t.topology.atom(idx[0]).residue.index == ridx)   # 0-based resid
@@ -555,8 +555,10 @@ def block_curve(x, min_blocks=8, n_sizes=48):
 
 def trust_report(series, dt_ps=1.0, label="observable"):
     """Print mean +/- autocorrelation-corrected SEM (sigma*sqrt(2 tau / N)), tau, and N_eff for a 1-D
-    series. That SEM stays valid even when the run is too short for block averaging to plateau;
-    block_curve() is the picture (its curve should climb up to this value). Returns a dict of the stats."""
+    series. When the run is too short for block averaging to plateau, this SEM is the best single-run
+    number to quote -- but, like tau, it is a LOWER BOUND (finite runs underestimate tau, so the true
+    uncertainty is larger; see the s2.6 prose). block_curve() is the picture (its curve climbs toward this
+    value). Returns a dict of the stats."""
     x = np.asarray(series, float); N = len(x)
     tau = integrated_autocorr_time(x); neff = N / (2.0 * tau)
     bsize, sems, berr = block_curve(x)

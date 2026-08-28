@@ -2,8 +2,8 @@
 ### Trp-cage (TC5b, PDB 1L2Y) in explicit water — build it, run it, watch it, analyze it
 
 This tutorial is a *deliberately small* MD workflow you can run on a laptop or free Colab — no HPC or
-datacenter GPU required, just the modest GPU in a laptop or Colab's free tier. (It *will* run CPU-only, but
-explicit-solvent MD on a CPU is painfully slow, so don't attempt that unless you specifically mean to.) The
+datacenter GPU required, just the modest GPU either one already has. (It *will* run CPU-only, but
+explicit-solvent MD on a CPU is painfully slow — don't, unless you specifically mean to.) The
 point is not a publication-grade result — it is to make the moving parts of an MD simulation **visible**:
 how a structure is prepared, what "solvation" and "minimization" actually do, and what the force field is
 doing to the atoms once dynamics start.
@@ -25,8 +25,8 @@ dihedral flips — **not** de-novo folding, which takes µs (Lindorff-Larsen *et
 precomputed multi-ns **reference** trajectory instead. The live tier teaches the *machinery*; the reference
 tier is long enough to be honest about its own uncertainty. That distinction is the point: a too-short run
 reports a *falsely* short correlation time and looks converged, while the reference reaches a timescale
-where you can at least see that it is **not** yet (§2.6). Neither tier is truly converged — the reference is
-just honest about it.
+where you can at least see that it is **not** (§2.6). Neither tier is truly converged; only the reference is
+long enough to **show** it.
 
 ## How the tutorial is organized
 
