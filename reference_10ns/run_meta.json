@@ -2,7 +2,7 @@
   "openmm": "8.2.0.dev-5377094",
   "platform": "CUDA",
   "python": "3.13.5",
-  "os": "Linux-5.14.0-570.119.1.el9_6.x86_64-x86_64-with-glibc2.34",
+  "os": "Linux-5.14.0-570.128.1.el9_6.x86_64-x86_64-with-glibc2.34",
   "cpu": "x86_64",
   "Precision": "mixed",
   "DeterministicForces": "true",
@@ -10,6 +10,8 @@
   "timestep_fs": 2,
   "prod_ps": 10000,
   "forcefield": "charmm36 + charmm36/water",
+  "start": "equilibrated (NVT->NPT, relaxed box)",
+  "production_ensemble": "NVT",
   "reference_seeds": [
     2021,
     2022,
