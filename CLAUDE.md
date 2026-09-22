@@ -13,7 +13,7 @@ fallback; do not develop there).
 ## THE architecture invariant (read this first)
 - **Two shipped, importable modules are the source of truth for the simulation code:**
   - **`mdtutorial.py`** — the fixed tutorial pipeline + analysis (`fetch_pdb`, `repair`, `solvate`,
-    `build_system`, `pick_platform`, `minimize`, `prepare_system`, `run_repeat`, `compute_cvs`, the
+    `build_system`, `pick_platform`, `minimize`, `equilibrate` (20 ps NVT → 100 ps NPT, barostat then dropped; production is NVT at the relaxed box), `prepare_system`, `run_repeat`, `compute_cvs`, the
     `trust_report` convergence toolkit) and the notebook-to-notebook **porting** handoff
     (`save_prepared` / `load_prepared`, and `load_or_prepare` = load-else-reprep so each notebook is
     self-sufficient). State travels in a `PreparedSystem` bundle — no module globals.
@@ -22,8 +22,13 @@ fallback; do not develop there).
     `pick_platform`) and adds only what the fixed pipeline can't do.
   These are **imported at notebook runtime** (unlike v1's `core_cells.py`, which was build-time-only string
   inlining — that model is gone).
-- **Builders emit the notebooks** (`nbformat`): `build_figures.py`, `build_sandbox.py`, `build_minimal.py`,
-  `build_determinism.py`. **Do NOT hand-edit the `.ipynb` files** — edit the module or the builder, then
+- **Builders emit the notebooks** (`nbformat`): `build_figures.py`, `build_enhanced.py`, `build_sandbox.py`,
+  `build_minimal.py`, `build_determinism.py`. **`glossary.py`** is a build-time helper: the single source of the
+  term definitions, emitted as each core notebook's "terms used" cell (index 1, right after the title) AND, via
+  `python glossary.py`, as the generated `## Glossary` section of `00_intro.md`; edit `TERMS` there, never the
+  rendered copies. Hide maps (`_HIDE_*`) are keyed by cell INDEX, so inserting a cell means shifting them.
+  Every notebook's title cell ends with `COLAB_NOTE` (set the GPU runtime per notebook) and every on-ramp warns
+  on Colab when no CUDA platform is present. **Do NOT hand-edit the `.ipynb` files** — edit the module or the builder, then
   re-run the builder. After changing a module, re-run any builder whose notebook depends on it.
 - **`minimal.ipynb` is the exception: it does NOT import** — the whole pipeline is inline, flat,
   self-contained (the "read the entire skeleton in one place" reference). Its logic must stay **consistent
@@ -41,7 +46,7 @@ fallback; do not develop there).
 
 **Porting (the run-order logistics):** the figure notebooks share **one output root** (`OUT="trpcage_out"`,
 with `PREP=OUT` the prep location) and run in a **prescribed order** — 01 `save_prepared()`s the system
-(`system.xml` + `stage4_minimized.pdb`), 02+ `load_prepared(PREP)` it instead of re-prepping. **This is a
+(`system.xml` + `stage4_minimized.pdb` + `stage5_equilibrated.pdb`, the NPT-relaxed box baked into both), 02+ `load_prepared(PREP)` it instead of re-prepping. **This is a
 default, not a hard requirement** (reversed 2026-07-28): if the prep is absent — 02 run standalone, or on
 Colab where each notebook is a *separate VM* with no shared filesystem — 02/03 fall back to an **EXPLICIT,
 loud re-prep** via the shared **`mdt.load_or_prepare(PREP, OUT)`** helper (load-else-`prepare_system`+
@@ -64,6 +69,7 @@ analyzing a stale run. Document this order in the README. Generated output roots
   start** so it stops mattering.
 - **Preparation** is deterministic via seeded RNGs + hydrogen placement on the **Reference** platform;
   `mdtutorial.repair` bakes this in. The determinism notebook demonstrates all three directly.
+- **Equilibration** (20 ps NVT → 100 ps NPT with a Monte Carlo barostat, then dropped) is dynamics on the chosen platform, so the equilibrated START is reproducible only under the dynamics rules above, not the Reference-platform determinism of repair/solvate. `determinism.ipynb` passes `equilibrate_ps=None` so its stage-by-stage experiments run on the minimized coordinates. The reference set is made with this full protocol (`02_dynamics` in canonical mode, or `make_canonical.py`), on ONE GPU model.
 - Headline: **archive the prepared system, not just the seed** — solvation is stochastic down to the water
   *count*. **Never** reintroduce an unqualified "bit-reproducible" claim (always per-GPU-model,
   fresh-context, fixed-prepared-system).
@@ -108,5 +114,7 @@ analyzing a stale run. Document this order in the README. Generated output roots
 
 ## Regenerating
 ```bash
-python build_figures.py && python build_sandbox.py && python build_minimal.py && python build_determinism.py
+python glossary.py && python build_figures.py && python build_enhanced.py && python build_sandbox.py && python build_minimal.py && python build_determinism.py
 ```
+(`02`/`03` are shipped WITH executed outputs; a rebuild drops them for any cell whose source changed, so re-execute
+or carry outputs across for unchanged cells before uploading.)

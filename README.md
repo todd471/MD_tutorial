@@ -1,6 +1,6 @@
 <!-- NOTE: the Colab/raw links below point at the PRACTICE repo `todd471/MD_tutorial`.
      Swap the slug to the final repo when it lands (tracked as task #30). The on-ramp cells read the
-     same slug from $MDTUTORIAL_BASE, so update both together. -->
+     same slug from $MDTUTORIAL_BASE, and glossary.py has it in INTRO_URL, so update all three together. -->
 
 # A miniature molecular-dynamics simulation, end to end
 
@@ -28,15 +28,16 @@ shipped modules; large reference trajectories are pulled **only when a cell need
 
 | Notebook | Open in Colab |
 |---|---|
-| `01_build_system` — prepare, solvate, minimize | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/01_build_system.ipynb) |
+| `01_build_system` — prepare, solvate, minimize, equilibrate | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/01_build_system.ipynb) |
 | `02_dynamics` — three trajectories, player, timescales | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/02_dynamics.ipynb) |
 | `03_enhanced_sampling` — steered MD + umbrella + MBAR | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/03_enhanced_sampling.ipynb) |
 | `minimal` — the conventional MD pipeline, flat, one file | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/minimal.ipynb) |
 | `sandbox` — turn the knobs | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/sandbox.ipynb) |
 | `determinism` — what's reproducible on *your* hardware | [![Open](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/todd471/MD_tutorial/blob/main/determinism.ipynb) |
 
-> On Colab, set **Runtime → Change runtime type → GPU** (the free T4 is plenty). CPU works but explicit-solvent
-> MD on a CPU is painfully slow. Google Drive is **not** required — it's an opt-in convenience only (see below).
+> On Colab, set **Runtime → Change runtime type → GPU** (the free T4 is plenty) **for every notebook you open**:
+> each one runs in its own VM, so the setting does not carry over. Cell 0 warns if it finds no GPU. CPU works but
+> explicit-solvent MD on a CPU is painfully slow. Google Drive is **not** required — it's an opt-in convenience only (see below).
 
 ### Path 2 · Local (conda — the reliable path)
 
@@ -60,7 +61,7 @@ omitted there (pip has no working headless PyMOL; the cartoon panels skip gracef
 
 Core tutorial — run in order:
 
-1. **`01_build_system`** — repair → box → water → minimize, and **save** the prepared system.
+1. **`01_build_system`** — repair → box → water → minimize → equilibrate (NVT, then NPT), and **save** the prepared system.
 2. **`02_dynamics`** — three trajectories, the synchronized molecule/observable player, and a
    timescale/scalogram view of where each motion's fluctuations live.
 3. **`03_enhanced_sampling`** — reaching past the timescale wall: *bias* a coordinate to drive a rare
@@ -74,7 +75,7 @@ Companions (any order):
 - **`sandbox`** — turn the knobs: protein, temperature, force field, water model, ensemble, thermostat, timestep.
 - **`determinism`** — measure what is, and isn't, bit-for-bit reproducible on *your* hardware.
 
-**On run order:** 01 saves the prepared system (`system.xml` + `stage4_minimized.pdb`) and 02/03 reuse
+**On run order:** 01 saves the prepared system (`system.xml` + `stage4_minimized.pdb` + `stage5_equilibrated.pdb`) and 02/03 reuse
 it — a **convenience, not a requirement**. If the prep is absent (02 run standalone, or on Colab where each
 notebook is a separate VM), the notebook does a loud, explicit **re-prep** via `mdt.load_or_prepare(...)`. So
 any notebook runs on its own; running in order just saves you a redundant solvation.
@@ -108,7 +109,7 @@ Both are **paper-frozen** — a repo update should never change them. `mdt.load_
 
 ---
 
-## Reproducibility — the honest version
+## Reproducibility: what actually repeats
 
 - **Dynamics** reproduce bit-for-bit from the seed **on a given GPU model** (CUDA + deterministic forces),
   only with a **fresh Context per run** (re-using and re-seeding a Context diverged in our tests — the

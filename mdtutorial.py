@@ -50,7 +50,7 @@ class PreparedSystem:
     the topology, the OpenMM System, the chosen platform (+ its properties), the minimized starting
     positions, and the hardware report. Returned by prepare_system(); consumed by run_repeat()."""
     def __init__(self, topology, system, platform, plat_props, min_positions, hardware,
-                 modeller=None, energy_curve=None):
+                 modeller=None, energy_curve=None, start_positions=None, box_vectors=None, density_curve=None):
         self.topology = topology
         self.system = system
         self.platform = platform
@@ -59,6 +59,14 @@ class PreparedSystem:
         self.hardware = hardware
         self.modeller = modeller
         self.energy_curve = energy_curve      # PE vs minimization step, if recorded
+        self.start_positions = start_positions  # equilibrated (NVT -> NPT) coordinates, set by equilibrate(); None = not run
+        self.box_vectors = box_vectors          # the NPT-relaxed periodic box that goes with start_positions
+        self.density_curve = density_curve      # (time_ps, density_g_cm3) during the NPT stage, if recorded
+
+    @property
+    def start(self):
+        """Where production starts: the equilibrated coordinates if equilibrate() ran, else the minimized ones."""
+        return self.start_positions if self.start_positions is not None else self.min_positions
 
 
 # ============================================================ fetch / repair / solvate
@@ -238,9 +246,75 @@ def minimize(simulation, record_curve=False, n_chunks=25, chunk_iters=10):
     return simulation.context.getState(getPositions=True).getPositions()
 
 
+def equilibrate(prep, seed, nvt_ps=20, npt_ps=100, temp_K=300.0, pressure_bar=1.0, verbose=True):
+    """Stage the freshly built box to its target state before production: a short NVT settle (velocities
+    drawn at temp_K, the water lets go of its packed arrangement) and then NPT with a Monte Carlo barostat so
+    the box relaxes to the force field's own liquid density. `addSolvent` packs water at a nominal density; in
+    our tests the box shrinks ~4% under NPT, without which production runs at a slightly wrong pressure.
+    The barostat is then DROPPED: production (run_repeat) is NVT at the relaxed box, which keeps the
+    fresh-Context reproducibility recipe and the 'flat box volume under NVT' vital sign. Stores the equilibrated
+    coordinates + box on `prep` (start_positions / box_vectors / density_curve) and bakes the relaxed box into
+    prep.system's default box vectors so save_prepared / load_prepared carry it. Returns prep.
+
+    Reproducibility: this stage is dynamics on the chosen platform, so the equilibrated START is reproducible
+    only under the dynamics rules (same GPU model, fresh Context, CUDA + DeterministicForces), not the
+    Reference-platform determinism of repair/solvate. One more reason to ARCHIVE the prepared system."""
+    temp = temp_K * unit.kelvin
+    dt = 0.002 * unit.picoseconds
+
+    def _sim(system, positions, box=None, velocities=None):
+        integ = mm.LangevinMiddleIntegrator(temp, 1 / unit.picosecond, dt)
+        integ.setRandomNumberSeed(seed)
+        s = app.Simulation(prep.topology, system, integ, prep.platform, prep.plat_props)
+        if box is not None:
+            s.context.setPeriodicBoxVectors(*box)
+        s.context.setPositions(positions)
+        if velocities is None:
+            s.context.setVelocitiesToTemperature(temp, seed)
+        else:
+            s.context.setVelocities(velocities)
+        return s
+
+    def _density(sim):
+        st = sim.context.getState()
+        mass = sum(prep.system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(prep.system.getNumParticles()))
+        vol_nm3 = st.getPeriodicBoxVolume().value_in_unit(unit.nanometer ** 3)
+        return mass * 1.66053907e-24 / (vol_nm3 * 1e-21)      # g / cm^3
+
+    # stage A: NVT settle from the minimized coordinates
+    sim = _sim(prep.system, prep.min_positions)
+    d0 = _density(sim)
+    sim.step(int(nvt_ps * 500))
+    st = sim.context.getState(getPositions=True, getVelocities=True)
+    pos, vel, box = st.getPositions(), st.getVelocities(), st.getPeriodicBoxVectors()
+    # stage B: NPT on a PRIVATE copy of the System (the barostat must not live in the production System)
+    sys_npt = mm.XmlSerializer.deserialize(mm.XmlSerializer.serialize(prep.system))
+    bar = mm.MonteCarloBarostat(pressure_bar * unit.bar, temp, 25)
+    bar.setRandomNumberSeed(seed)
+    sys_npt.addForce(bar)
+    sim = _sim(sys_npt, pos, box=box, velocities=vel)
+    t, dens = [0.0], [_density(sim)]
+    for k in range(int(npt_ps)):                           # 1 ps chunks -> a density trace the notebook can plot
+        sim.step(500); t.append(float(k + 1)); dens.append(_density(sim))
+    st = sim.context.getState(getPositions=True, getVelocities=True)
+    prep.start_positions = st.getPositions()
+    prep.box_vectors = st.getPeriodicBoxVectors()
+    prep.density_curve = (t, dens)
+    prep.system.setDefaultPeriodicBoxVectors(*prep.box_vectors)   # the relaxed box travels with the System (system.xml)
+    prep.topology.setPeriodicBoxVectors(prep.box_vectors)         # ...and with the topology (PDB CRYST1 on save)
+    if verbose:
+        v0 = box[0][0].value_in_unit(unit.nanometer) * box[1][1].value_in_unit(unit.nanometer) * box[2][2].value_in_unit(unit.nanometer)
+        v1 = sim.context.getState().getPeriodicBoxVolume().value_in_unit(unit.nanometer ** 3)
+        print(f"equilibrated: {nvt_ps} ps NVT + {npt_ps} ps NPT at {pressure_bar} bar; density {d0:.3f} -> "
+              f"{np.mean(dens[len(dens)//2:]):.3f} g/cm^3, box {v0:.2f} -> {v1:.2f} nm^3 ({100*(v1/v0-1):+.1f}%)")
+    return prep
+
+
 def prepare_system(pdb_id="1L2Y", seed=2024, out_root=".", temp_K=300.0,
-                   minimize_curve=False, verbose=True):
-    """Convenience: fetch -> repair -> solvate -> build_system -> minimize, returned as a PreparedSystem.
+                   minimize_curve=False, equilibrate_ps=(20, 100), verbose=True):
+    """Convenience: fetch -> repair -> solvate -> build_system -> minimize -> equilibrate (NVT, NPT), returned
+    as a PreparedSystem. equilibrate_ps=(nvt_ps, npt_ps); pass None to stop at the minimized state (the
+    determinism notebook does, to keep its stage-by-stage experiments on the minimized coordinates).
     Use the granular functions instead when a notebook wants to SHOW each step (the build-system figure)."""
     path = fetch_pdb(pdb_id, out_root)
     modeller = repair(path, seed, out_root, verbose=verbose)
@@ -251,8 +325,11 @@ def prepare_system(pdb_id="1L2Y", seed=2024, out_root=".", temp_K=300.0,
         print_hardware_report(hw)
     mn = minimize(sim, record_curve=minimize_curve)
     min_positions, curve = mn if minimize_curve else (mn, None)
-    return PreparedSystem(sim.topology, system, platform, props, min_positions, hw,
+    prep = PreparedSystem(sim.topology, system, platform, props, min_positions, hw,
                           modeller=modeller, energy_curve=curve)
+    if equilibrate_ps is not None:
+        equilibrate(prep, seed, nvt_ps=equilibrate_ps[0], npt_ps=equilibrate_ps[1], temp_K=temp_K, verbose=verbose)
+    return prep
 
 
 # ============================================================ porting between notebooks
@@ -266,16 +343,23 @@ def save_prepared(prep, out_root="."):
     paths = {"system": outp("system.xml", out_root),
              "topology": outp("stage3_solvated.pdb", out_root),
              "minimized": outp("stage4_minimized.pdb", out_root)}
-    open(paths["system"], "w").write(mm.XmlSerializer.serialize(prep.system))
+    open(paths["system"], "w").write(mm.XmlSerializer.serialize(prep.system))   # carries the relaxed box if equilibrated
     app.PDBFile.writeFile(prep.topology, prep.min_positions, open(paths["minimized"], "w"))
+    if prep.start_positions is not None:                  # equilibrated start (NVT -> NPT), box in CRYST1
+        paths["equilibrated"] = outp("stage5_equilibrated.pdb", out_root)
+        app.PDBFile.writeFile(prep.topology, prep.start_positions, open(paths["equilibrated"], "w"))
+        if prep.density_curve is not None:
+            t, d = prep.density_curve
+            np.savetxt(outp("equilibration_density.csv", out_root), np.c_[t, d], delimiter=",",
+                       header="time_ps,density_g_cm3", comments="")
     return paths
 
 
 def load_prepared(out_root=".", seed=2024, temp_K=300.0):
-    """Reconstruct a PreparedSystem from save_prepared()'s files (system.xml + stage4_minimized.pdb),
-    re-picking the platform on THIS machine so the run ports across hardware. Skips prep + minimize
-    entirely -- the downstream figure notebooks call this instead of prepare_system(). Errors clearly if
-    01's output is absent: 02+ REQUIRE it and there is no silent re-prep."""
+    """Reconstruct a PreparedSystem from save_prepared()'s files (system.xml + stage4_minimized.pdb, plus
+    stage5_equilibrated.pdb when 01 ran the NVT/NPT equilibration), re-picking the platform on THIS machine
+    so the run ports across hardware. Skips prep, minimize and equilibrate entirely -- the downstream figure
+    notebooks call this instead of prepare_system(). Errors clearly if 01's output is absent."""
     min_pdb, sys_xml = outp("stage4_minimized.pdb", out_root), outp("system.xml", out_root)
     if not (os.path.exists(min_pdb) and os.path.exists(sys_xml)):
         raise FileNotFoundError(
@@ -284,8 +368,22 @@ def load_prepared(out_root=".", seed=2024, temp_K=300.0):
     pdb = app.PDBFile(min_pdb)
     system = mm.XmlSerializer.deserialize(open(sys_xml).read())
     sim, platform, props = pick_platform(pdb.topology, system, pdb.positions, seed, temp_K)
-    return PreparedSystem(pdb.topology, system, platform, props, pdb.positions,
-                          hardware_report(sim.context))
+    prep = PreparedSystem(pdb.topology, system, platform, props, pdb.positions, hardware_report(sim.context))
+    eq_pdb = outp("stage5_equilibrated.pdb", out_root)
+    if os.path.exists(eq_pdb):                            # equilibrated start + relaxed box (older preps lack it)
+        eq = app.PDBFile(eq_pdb)
+        prep.start_positions = eq.positions
+        prep.box_vectors = eq.topology.getPeriodicBoxVectors()
+        prep.topology.setPeriodicBoxVectors(prep.box_vectors)
+        dens_csv = outp("equilibration_density.csv", out_root)
+        if os.path.exists(dens_csv):
+            arr = np.loadtxt(dens_csv, delimiter=",", skiprows=1)
+            prep.density_curve = (arr[:, 0].tolist(), arr[:, 1].tolist())
+    else:
+        print("[WARNING] this prep has no stage5_equilibrated.pdb (made before the equilibration stage existed): "
+              "production would start from the MINIMIZED coordinates in the un-relaxed addSolvent box. "
+              "Re-run 01_build_system to regenerate the prep.")
+    return prep
 
 
 def load_or_prepare(prep_root, out_root=None, seed=2024, temp_K=300.0, pdb_id="1L2Y", verbose=True):
@@ -314,18 +412,23 @@ def load_or_prepare(prep_root, out_root=None, seed=2024, temp_K=300.0, pdb_id="1
 
 
 def _prep_fingerprint(prep):
-    """Short content hash of the prepared system's minimized coordinates -- identifies THIS solvation so a
-    trajectory is reused only if it came from the same prepared system (two solvation seeds can share an
-    atom count but never share these coordinates)."""
+    """Short content hash of the prepared system's STARTING coordinates (equilibrated if that stage ran,
+    else minimized) plus its box -- identifies THIS solvation + equilibration so a trajectory is reused only
+    if it came from the same prepared system (two solvation seeds can share an atom count but never share
+    these coordinates; adding the NPT stage to an old prep changes the fingerprint and forces a regeneration)."""
     import hashlib
-    xyz = np.asarray(prep.min_positions.value_in_unit(unit.nanometer), dtype=np.float64)
-    return hashlib.md5(np.round(xyz, 5).tobytes()).hexdigest()[:12]
+    xyz = np.asarray(prep.start.value_in_unit(unit.nanometer), dtype=np.float64)
+    h = hashlib.md5(np.round(xyz, 5).tobytes())
+    if prep.box_vectors is not None:
+        h.update(np.round(np.asarray(prep.box_vectors.value_in_unit(unit.nanometer), dtype=np.float64), 5).tobytes())
+    return h.hexdigest()[:12]
 
 
 # ============================================================ production runner
 def run_repeat(prep, seed, n_prod_ps=200, run_mode="interactive", out_root=".",
                force_rerun=False, load_reference=False, ref_root="reference_run", temp_K=300.0):
-    """Run one independent production trajectory from the prepared, minimized system. Uses a FRESH OpenMM
+    """Run one independent production trajectory from the prepared system (its equilibrated NVT->NPT start
+    and relaxed box when 01 ran equilibrate(); else the minimized coordinates). Uses a FRESH OpenMM
     Context per run -- in our tests that reproduces the seeded trajectory; re-using and re-seeding a Context
     did not (the mechanism is untraced, so we state the recipe, not the cause). Writes
     traj_<seed>.dcd + the scalar state log; in run_mode='canonical' also the restart/reproduction slate.
@@ -361,9 +464,11 @@ def run_repeat(prep, seed, n_prod_ps=200, run_mode="interactive", out_root=".",
     integ_r = mm.LangevinMiddleIntegrator(temp, 1 / unit.picosecond, 0.002 * unit.picoseconds)
     integ_r.setRandomNumberSeed(seed)
     sim_r = app.Simulation(prep.topology, prep.system, integ_r, prep.platform, prep.plat_props)
-    sim_r.context.setPositions(prep.min_positions)
+    if prep.box_vectors is not None:
+        sim_r.context.setPeriodicBoxVectors(*prep.box_vectors)   # the NPT-relaxed box (also the System default)
+    sim_r.context.setPositions(prep.start)                # equilibrated start if available, else minimized
     sim_r.context.setVelocitiesToTemperature(temp, seed)
-    sim_r.step(10000)                                     # 20 ps NVT equilibration
+    sim_r.step(10000)                                     # 20 ps NVT settle after the fresh velocity draw (no barostat: NVT production)
     dcd_rep = app.DCDReporter(dcd, 500); sim_r.reporters.append(dcd_rep)   # TRAJECTORY: every figure derives from it
     sim_r.reporters.append(app.StateDataReporter(outp(f"state_{seed}.csv", out_root), 500,   # scalar STATE LOG (always)
         step=True, time=True, potentialEnergy=True, kineticEnergy=True, totalEnergy=True,
@@ -377,7 +482,9 @@ def run_repeat(prep, seed, n_prod_ps=200, run_mode="interactive", out_root=".",
     if run_mode == "canonical":
         sim_r.saveState(outp(f"final_state_{seed}.xml", out_root))
         meta = {**hardware_report(sim_r.context), "seed": seed, "temperature_K": temp_K,
-                "timestep_fs": 2, "prod_ps": n_prod_ps, "forcefield": "charmm36 + charmm36/water"}
+                "timestep_fs": 2, "prod_ps": n_prod_ps, "forcefield": "charmm36 + charmm36/water",
+                "start": "equilibrated (NVT->NPT, relaxed box)" if prep.start_positions is not None else "minimized (addSolvent box)",
+                "production_ensemble": "NVT"}
         json.dump(meta, open(outp(f"run_meta_{seed}.json", out_root), "w"), indent=2)
     # Flush to STABLE STORAGE before anything reads it back: DCDReporter closes only on GC, so on a
     # networked FS an unflushed DCD can read back as ZERO frames (the intermittent compute_cvs IndexError).

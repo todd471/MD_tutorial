@@ -570,7 +570,7 @@ def convergence_figure(series, dt_ps=1.0, out_png=None, label="observable"):
     ax[0].semilogx(bi, si, "o-", color="navy", ms=3)
     ax[0].axhline(naive_i, ls="--", color="0.55", lw=1); ax[0].axhline(plateau_i, ls="--", color="firebrick", lw=1)
     ax[0].text(bi[-1], naive_i, "naïve σ/√N\n(independent-frames floor)", va="center", ha="right", fontsize=8, color="0.4", bbox=BOX)
-    ax[0].text(bi[0], plateau_i, "honest SEM\n(asymptotic plateau)", va="center", ha="left", fontsize=8.5, color="firebrick", bbox=BOX)
+    ax[0].text(bi[0], plateau_i, "plateau SEM\n(asymptotic)", va="center", ha="left", fontsize=8.5, color="firebrick", bbox=BOX)
     ax[0].set(title="Well-sampled reference: SEM plateaus", xlabel="block size (frames)",
               ylabel="standard error of the mean (Å)"); ax[0].set_ylim(*YL)
     naive_r = y.std(ddof=1) / np.sqrt(N)                  # what a SHUFFLED (independent-frames) run would give
