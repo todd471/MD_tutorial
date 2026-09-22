@@ -2,16 +2,19 @@
   "openmm": "8.2.0.dev-5377094",
   "platform": "CUDA",
   "python": "3.13.5",
-  "os": "Linux-5.14.0-570.119.1.el9_6.x86_64-x86_64-with-glibc2.34",
+  "os": "Linux-5.14.0-570.128.1.el9_6.x86_64-x86_64-with-glibc2.34",
   "cpu": "x86_64",
-  "DeviceName": "Tesla V100-PCIE-16GB",
+  "DeviceName": "NVIDIA A100-PCIE-40GB",
   "Precision": "mixed",
   "DeterministicForces": "true",
   "DeviceIndex": "0",
-  "nvidia_smi": "Tesla V100-PCIE-16GB, 580.95.05, 16384 MiB",
+  "nvidia_smi": "NVIDIA A100-PCIE-40GB, 580.95.05, 40960 MiB",
   "seed": 2025,
   "temperature_K": 300.0,
   "timestep_fs": 2,
   "prod_ps": 10000,
-  "forcefield": "charmm36 + charmm36/water"
+  "forcefield": "charmm36 + charmm36/water",
+  "start": "equilibrated (NVT->NPT, relaxed box)",
+  "production_ensemble": "NVT",
+  "solvation_batch": "A100 batch (4520-atom box)"
 }
